@@ -1,0 +1,7 @@
+{
+  "day": 1,
+  "population": 1204,
+  "decree": { "text": "free snacks for everyone", "author": "first_citizen", "likes": 4812 },
+  "citizens": ["@yourname", "@your_bestie", "@lurker_no_more", "@first_citizen", "@not_a_bot", "@mom_im_famous"],
+  "note": "Sample data from the EP 001 video. census.py will write the real numbers here."
+}
