@@ -37,7 +37,7 @@ renderer.shadowMap.enabled = quality.shadows; renderer.shadowMap.type = THREE.PC
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; renderer.outputColorSpace = THREE.SRGBColorSpace;
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
 function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.userData.lift = undefined; camera.clearViewOffset(); camera.updateProjectionMatrix(); }
-addEventListener("resize", resize); resize();
+addEventListener("resize", () => { resize(); if (typeof hud === "function" && avatar) hud(); }); resize();
 
 // ---------- the two places: inside The People's House, and the world outside ----------
 const dpr = buildDPR(t9n, quality);
@@ -152,6 +152,7 @@ let pinch0 = 0, dist0 = 7;
 const pinchLen = () => { const [a, b] = [...ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (e) => {
+  if (touch && !building && joy.id === null && onJoySide(e.clientX) && e.clientY > innerHeight * 0.25) { canvas.setPointerCapture(e.pointerId); startJoy(e, true); return; }
   ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); canvas.setPointerCapture(e.pointerId);
   if (ptrs.size === 2) { pinch0 = pinchLen(); dist0 = dist; drag.id = null; return; }
   if (drag.id !== null) return;
@@ -159,6 +160,7 @@ canvas.addEventListener("pointerdown", (e) => {
   aimAt(e);
 });
 canvas.addEventListener("pointermove", (e) => {
+  if (e.pointerId === joy.id) { moveJoy(e); return; }
   if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (ptrs.size === 2) { const l = pinchLen(); if (pinch0 > 0 && l > 0) dist = clamp(dist0 * pinch0 / l, 3, 18); return; }
   if (drag.id === e.pointerId) {
@@ -167,6 +169,7 @@ canvas.addEventListener("pointermove", (e) => {
   } else if (!touch) aimAt(e);
 });
 const ptrUp = (e) => {
+  if (e.pointerId === joy.id) { endJoy(); return; }
   ptrs.delete(e.pointerId);
   if (drag.id !== e.pointerId) return;
   if (building && drag.moved <= 6) { aimAt(e); useTool(drag.button === 2 ? "del" : tool); }
@@ -180,18 +183,27 @@ function aimAt(e) {
   if (pickingHouse() && tool === "place") aimHouse(); else houseGhost.visible = false;
 }
 
+// the joystick: it sits in a corner, and it also appears wherever your thumb lands on its half of the screen (left by default,
+// right if chosen in the menu); the other half turns the camera
 const joy = { id: null, cx: 0, cy: 0, x: 0, y: 0 };
+const J = $("joy"), knob = J.querySelector("i");
+const onJoySide = (x) => (S.joyRight ? x > innerWidth * 0.55 : x < innerWidth * 0.45);
+function startJoy(e, float) {
+  if (float) { J.style.left = `${e.clientX - 65}px`; J.style.top = `${e.clientY - 65}px`; J.style.right = J.style.bottom = "auto"; J.classList.add("float"); }
+  const r = J.getBoundingClientRect(); Object.assign(joy, { id: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }); moveJoy(e);
+}
+function moveJoy(e) {
+  let dx = e.clientX - joy.cx, dy = e.clientY - joy.cy; const l = Math.hypot(dx, dy), m = 50;
+  if (l > m) { dx *= m / l; dy *= m / l; }
+  joy.x = dx / m; joy.y = dy / m; knob.style.transform = `translate(${dx}px,${dy}px)`;
+}
+function endJoy() { joy.id = null; joy.x = joy.y = 0; knob.style.transform = ""; J.style.left = J.style.top = J.style.right = J.style.bottom = ""; J.classList.remove("float"); }
 if (touch) {
-  const j = $("joy"), knob = j.querySelector("i"); j.style.display = "block";
-  j.addEventListener("pointerdown", (e) => { const r = j.getBoundingClientRect(); Object.assign(joy, { id: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }); j.setPointerCapture(e.pointerId); moveJoy(e); });
-  j.addEventListener("pointermove", (e) => e.pointerId === joy.id && moveJoy(e));
-  const end = (e) => { if (e.pointerId !== joy.id) return; joy.id = null; joy.x = joy.y = 0; knob.style.transform = ""; };
-  j.addEventListener("pointerup", end); j.addEventListener("pointercancel", end);
-  function moveJoy(e) {
-    let dx = e.clientX - joy.cx, dy = e.clientY - joy.cy; const l = Math.hypot(dx, dy), m = 50;
-    if (l > m) { dx *= m / l; dy *= m / l; }
-    joy.x = dx / m; joy.y = dy / m; knob.style.transform = `translate(${dx}px,${dy}px)`;
-  }
+  J.style.display = "block";
+  J.addEventListener("pointerdown", (e) => { J.setPointerCapture(e.pointerId); startJoy(e, false); });
+  J.addEventListener("pointermove", (e) => e.pointerId === joy.id && moveJoy(e));
+  const end = (e) => e.pointerId === joy.id && endJoy();
+  J.addEventListener("pointerup", end); J.addEventListener("pointercancel", end);
 }
 
 // ---------- HUD ----------
@@ -205,7 +217,8 @@ function hint() {
 }
 function hud() {
   $("meName").textContent = handle();
-  $("meLv").textContent = powers() ? t9n("admin") + (S.adm.form === "baby" ? ` · ${S.adm.age ?? 16} ${t9n("aYears")}` : "") : t9n("levels")[LV];
+  $("meLv").textContent = powers() ? t9n("admin") + (S.adm.form === "baby" ? ` · ${S.adm.age ?? 16}` : "") : t9n("levels")[LV];
+  $("adminBtn").textContent = innerWidth <= 480 ? "⚙" : t9n("admin");
   $("meCoins").textContent = S.free || powers() ? "∞" : S.coins;
   $("adminBtn").style.display = isAdmin ? "inline-block" : "none";
   const h = hint(); $("hint").textContent = h ? t9n(h) : "";
@@ -217,13 +230,16 @@ function hud() {
 function labels() {
   document.documentElement.lang = getLang();
   $("langBtn").textContent = t9n("lang"); $("buildBtn").textContent = building ? t9n("done") : t9n("build");
+  $("joyBtn").textContent = t9n(S.joyRight ? "joyLeft" : "joyRight"); $("joyBtn").style.display = touch ? "" : "none";
   $("editBtn").textContent = t9n("edit"); $("resetBtn").textContent = t9n("reset"); $("growBtn").textContent = t9n("grow");
   $("cSub").textContent = t9n("subtitle"); $("cNameL").textContent = t9n("yourName"); $("cName").placeholder = t9n("namePh");
   $("cLookL").textContent = t9n("look"); $("cFreeL").textContent = t9n("freeMode"); $("cGo").textContent = S.created ? "OK" : t9n("play");
-  island.paintTexts(); dpr.paintTexts(); paintData(); buildBar(); creatorUI(); hud(); actsSig = "";
+  island.paintTexts(); dpr.paintTexts(); paintData(); buildBar(); creatorUI(); hud(); actsSig = null;   // redraw the action buttons
 }
 $("langBtn").onclick = () => { setLang(getLang() === "id" ? "en" : "id"); labels(); makeAvatar(); };
 $("menuBtn").onclick = () => { const m = $("menu"); m.style.display = m.style.display === "flex" ? "none" : "flex"; };
+$("joyBtn").onclick = () => { S.joyRight = !S.joyRight; dirty = true; sides(); labels(); };
+const sides = () => document.body.classList.toggle("joy-right", !!S.joyRight);
 $("editBtn").onclick = () => { $("menu").style.display = "none"; openCreator(); };
 $("growBtn").onclick = () => { $("menu").style.display = "none"; openGrow(); };
 $("me").onclick = () => openGrow();
@@ -292,7 +308,7 @@ $("grow").onclick = (e) => { if (e.target.id === "grow") $("grow").style.display
 let building = false, tool = "place", pickT = 0;
 function toggleBuild() {
   if (!S.created || (where !== "out" && !building)) return;
-  building = !building; $("bar").style.display = building ? "flex" : "none";
+  building = !building; $("bar").style.display = building ? "flex" : "none"; document.body.classList.toggle("building", building);
   if (!building) { builder.hide(); houseGhost.visible = false; }
   labels();
 }
@@ -650,7 +666,7 @@ function frame() {
 }
 
 // ---------- start ----------
-makeAvatar(); placeAt(where, player.x, player.z, where === "in" ? SPAWN.womb[2] : Math.PI); labels();
+sides(); makeAvatar(); placeAt(where, player.x, player.z, where === "in" ? SPAWN.womb[2] : Math.PI); labels();
 if (!S.created) openCreator();
 addEventListener("pagehide", () => S.created && save());
 document.fonts.ready.then(() => labels());
