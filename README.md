@@ -33,6 +33,17 @@ Open the address Vite prints (it also listens on your network, so a phone on the
 
 Progress is saved in the browser (localStorage). The language follows the device (Indonesian or English); the EN/ID button switches it. Phones get no shadows, fewer bubbles and a shorter view distance so they stay smooth.
 
+## Admin (the presenter)
+
+One device can be the admin's: you play as the president from the videos, at full level, with endless coins and blocks, any form (president, cell, fetus, baby), any size and body colour, no drowning, and teleports to every room and place. "View as a player" switches the powers off and lets you try each census level, or start over as a new player, to see how players grow.
+
+```bash
+npm run admin-key        # makes a key: .admin-key (the key) and .env.local (its hash); both stay off git
+npm run dev              # restart after making a key
+```
+
+Open the game once with `?admin=<key>` on your device (the key is removed from the address bar). The ADMIN button then shows at the top. The game holds only the key's hash; since the game runs on each player's own device, this hides the panel but does not protect shared data. That needs the server that comes with chat and multiplayer.
+
 ## World data
 
 `public/data/world.json` connects the game to the series. `census.py export-world` writes it after each census:
@@ -75,4 +86,5 @@ Add `?debug` to the address to get `window.__cz` for tests.
 - A national flag and app icon designed by viewers in the comments, chosen by vote, with the designer credited.
 - Buildings that unlock at follower milestones (Census Office, People's Stadium, Airport, which also opens travel to the neighbouring land).
 - The in-app comment box online (a small server that stores comments for the census).
+- Players chatting with each other (needs the same server), with admin checks done on the server.
 - Ready-made buildings to buy, jobs beyond the eternal internship, and a shared world for several players.

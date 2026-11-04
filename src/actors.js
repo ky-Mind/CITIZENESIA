@@ -59,7 +59,7 @@ export function sperm(o = {}) {
     for (let i = 0; i < 9; i++) { const a = -0.9 + i * 0.22; M(new THREE.SphereGeometry(0.2 + hash(i) * 0.06, 12, 10), mat("#2a2421"), Math.sin(a) * 0.75, 0.7 + Math.cos(a) * 0.2 + hash(i + 3) * 0.08, (hash(i + 5) - 0.5) * 0.4, head); }
     M(new THREE.ConeGeometry(0.08, 0.24, 8), mat("#2a2421"), 0.55, -0.48, 0.6, head).rotation.x = Math.PI + 0.3;
     const s = M(new THREE.TorusGeometry(0.86, 0.07, 8, 32), mat("#e0384b"), 0, 0, 0, head); s.rotation.set(0.25, 0, 0.9); s.scale.set(1.2, 1, 0.95);
-    o.look = { glasses: true };
+    o.look = { glasses: true, ...(o.look || {}) };
   }
   if (o.look) addLook(head, o.look, true);
   if (o.name) nameTag(head, o.name, -0.2, -1.1, 0.6, 0.9);
@@ -89,7 +89,7 @@ export const blinkAt = (t, seed) => { const p = (t + hash(seed) * 3.1) % 3.7; re
 // ---------- the baby (born out of The People's House) ----------
 export function baby(name, look = {}) {
   const g = new THREE.Group();
-  const skin = glossy("#f2c39b", { roughness: 0.5, clearcoat: 0.3 });
+  const skin = glossy(look.skin || "#f2c39b", { roughness: 0.5, clearcoat: 0.3 });
   const legs = [-1, 1].map((k) => { const l = new THREE.Group(); l.position.set(k * 0.17, 0.42, 0); g.add(l); M(new THREE.CapsuleGeometry(0.13, 0.25, 4, 8), skin, 0, -0.2, 0, l); return l; });
   const body = new THREE.Group(); g.add(body);
   M(new THREE.SphereGeometry(0.42, 20, 14), mat("#ffffff", { roughness: 0.9 }), 0, 0.62, 0, body).scale.set(1.05, 0.75, 0.95);
