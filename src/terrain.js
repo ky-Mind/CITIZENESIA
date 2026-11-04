@@ -2,6 +2,7 @@
 // (like Minecraft), so the world never ends but only the nearby part is in memory. The home island is flat ground at y = 0.
 import * as THREE from "three";
 import { mat, h2, vnoise, sm } from "./kit.js";
+import { doorOf } from "./homes.js";
 
 export const SEA = -0.35, HOME_R = 40, CHUNK = 32;
 const SEG = 16;
@@ -80,8 +81,9 @@ export function createTerrain(scene, radius = 3) {
     trees.forEach(([x, y, z, s]) => solids.push({ x0: x - 0.3 * s, x1: x + 0.3 * s, z0: z - 0.3 * s, z1: z + 0.3 * s, h: y + 2.2 * s }));
     rocks.forEach(([x, y, z, s]) => s > 1 && solids.push({ x0: x - 0.45 * s, x1: x + 0.45 * s, z0: z - 0.45 * s, z1: z + 0.45 * s, h: y + 0.5 * s }));
     houses.forEach(([x, y, z]) => solids.push({ x0: x - 1.25, x1: x + 1.25, z0: z - 1.25, z1: z + 1.25, h: y + 3 }));
+    const doors = houses.map(([x, y, z, ry, i]) => ({ ...doorOf(x, z, ry, 1.1), ry, wall: WALLS[i % 5], type: "s", id: `v${cx},${cz},${i}` }));
     scene.add(g);
-    return { g, ground, solids };
+    return { g, ground, solids, doors };
   }
 
   const key = (cx, cz) => cx + "," + cz;
@@ -107,7 +109,8 @@ export function createTerrain(scene, radius = 3) {
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { const ch = chunks.get(key(ccx + dx, ccz + dz)); if (ch) out.push(...ch.solids); }
     return out;
   }
+  const doorsNear = (x, z) => { const out = [], ccx = Math.floor(x / CHUNK), ccz = Math.floor(z / CHUNK); for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { const ch = chunks.get(key(ccx + dx, ccz + dz)); if (ch) out.push(...ch.doors); } return out; };
   const groundMeshes = () => [...chunks.values()].map((c) => c.ground);
   const loaded = () => chunks.size;
-  return { update, solidsNear, groundMeshes, loaded, sea };
+  return { update, solidsNear, doorsNear, groundMeshes, loaded, sea };
 }

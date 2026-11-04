@@ -4,6 +4,7 @@
 import * as THREE from "three";
 import { M, mat, signTex, liveSign, hash, canTex } from "./kit.js";
 import { baby, walk } from "./actors.js";
+import { doorOf } from "./homes.js";
 
 export const HOUSE = { x: 0, z: -22, s: 3 };    // The People's House, front door facing +z
 export const OFFICE = { x: 20, z: -10 };       // the job office, open front facing +z
@@ -18,8 +19,9 @@ export function buildIsland(scene, t9n) {
   path(0, -5, 0, -16.5, 3); path(4, -3.5, OFFICE.x, OFFICE.z + 3.6);
 
   // the little houses with dark, empty windows (they light up as the population grows)
-  const windows = [];
+  const windows = [], doors = [];
   function house(x, z, wall, roof, ry = 0) {
+    doors.push({ ...doorOf(x, z, ry, 0.95), ry, wall, type: "s", id: "i" + doors.length });
     const h = new THREE.Group(); h.position.set(x, 0, z); h.rotation.y = ry; scene.add(h);
     M(new THREE.BoxGeometry(2, 1.7, 1.8), mat(wall), 0, 0.85, 0, h);
     const r = M(new THREE.ConeGeometry(1.65, 1.1, 4), mat(roof), 0, 2.25, 0, h); r.rotation.y = Math.PI / 4;
@@ -151,5 +153,5 @@ export function buildIsland(scene, t9n) {
     windows.forEach((w, i) => { const on = i < lit; w.material.color.set(on ? "#ffd36a" : "#3a4a5a"); w.material.emissive.set(on ? "#a8741a" : "#000000"); });
   }
 
-  return { solids, update, setData, setCitizens, paintTexts, doorWorld, officeDesk, walkers, FLAG };
+  return { solids, update, setData, setCitizens, paintTexts, doorWorld, officeDesk, walkers, FLAG, doors };
 }

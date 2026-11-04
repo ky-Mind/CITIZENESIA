@@ -13,12 +13,14 @@ Open the address Vite prints (it also listens on your network, so a phone on the
 
 ## How it works (v0.2)
 
-1. **Start in the womb.** Pick your account name and a LOOK. You start as a cell inside The People's House (Gedung DPR), whose inside is the pink womb from the video. Cells live only in here.
+1. **Start in the womb.** Pick your account name and a LOOK (drag to turn around your character and walk while you edit). You start as a cell inside The People's House (Gedung DPR), whose inside is the pink womb from the video. Cells live only in here.
 2. **Explore the building.** Lobby (reception, aspiration box, metal detector, exit), the plenary hall (about 80 seats with microphones and vote buttons, the podium, the gavel, the president, three big screens, a light switch), the womb (the egg, sleeping fetuses) and the lounge (free snacks, water, TV, vending machine, nap bench, census board).
 3. **Grow through comments.** Levels come from the census, not from playing: 1 episode with a comment = CELL, 2 in a row = FETUS, 3 = BABY, 4+ = CITIZEN with a job title. The aspiration box shows your game code (CZ-XXXX): put it in one comment and the census links your account to your game. It also copies your comment and opens Instagram, TikTok or YouTube.
 4. **Be born.** At BABY, enter the egg. You are born and may leave through the lobby door.
 5. **The world outside never ends.** Land and sea are built in chunks around you and dropped behind you, with villages on the neighbouring land. Deep water drowns you and you wake up at The People's House. You can always walk back in.
-6. **Work and build.** The job office pays 10 coins a shift; blocks cost a coin each and can go anywhere on land.
+6. **Walk into any house.** Every house has a door: the island houses, the village houses on the neighbouring land and the houses players buy. Inside, everything can be used: bed, fridge, stove, table, sofa and TV, light switch, and in bigger houses a computer (it opens the comment box) and a bookshelf. The roof is open to the camera and the wall facing it hides, like a doll's house.
+7. **Buy a ready-made house.** In build mode pick a small (50), medium (120) or big (250) house and tap the ground; the door faces you. Remove mode sells your own house back.
+8. **Work and build.** The job office pays 10 coins a shift; blocks cost a coin each and can go anywhere on land.
 
 | | Laptop | Phone |
 | --- | --- | --- |
@@ -73,6 +75,7 @@ The file in the repo still holds sample data from the EP 001 video. For testing,
 - `src/actors.js`: the cell citizen, the president, the fetus and the baby, with LOOK options.
 - `src/dpr.js`: inside The People's House: the lobby, the plenary hall, the womb and the lounge, and everything you can use there.
 - `src/island.js`: the home island: plaza, boards, The People's House outside, the flag pole and the job office.
+- `src/homes.js`: bought houses, every house door, and the inside of a house.
 - `src/terrain.js`: the endless land and sea, built in chunks around the player.
 - `src/sfx.js`: small sound effects made in the browser.
 - `src/build.js`: blocks, aiming and saving.

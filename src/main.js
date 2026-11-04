@@ -10,6 +10,7 @@ import { createTerrain, heightAt, SEA, HOME_R } from "./terrain.js";
 import { createBuilder, BLOCKS } from "./build.js";
 import { t9n, getLang, setLang } from "./i18n.js";
 import { SFX } from "./sfx.js";
+import { createHomes, buildInterior, HOUSE_TYPES, typeOf, WALLS, ROOFS } from "./homes.js";
 
 const $ = (id) => document.getElementById(id);
 const touch = matchMedia("(pointer: coarse)").matches;
@@ -55,12 +56,13 @@ const NOBUILD_OFFICE = { x0: OFFICE.x - 5, x1: OFFICE.x + 5, z0: OFFICE.z - 4.2,
 const noBuild = (x, z) => Math.hypot(x, z) < 6.2 || island.solids.some((b) => inBox(b, x, z, 0.4)) || inBox(NOBUILD_OFFICE, x, z)
   || Math.hypot(x - island.doorWorld.x, z - island.doorWorld.z) < 3;
 const builder = createBuilder(out, camera, noBuild);
+const homes = createHomes(out);
 
 // ---------- save ----------
 const KEY = "citizenesia.save.v2", ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const newCode = () => "CZ-" + Array.from({ length: 4 }, () => ABC[Math.floor(Math.random() * ABC.length)]).join("");
 let S = { name: "", code: newCode(), look: { cap: "#e0384b", band: null, glasses: true, stache: true, helmet: false }, coins: 0, free: false, hired: false,
-  born: false, created: false, adm: { on: true, form: "president", size: 1, body: null, sim: 1 }, where: "in", posIn: [SPAWN.womb[0], SPAWN.womb[1]], posOut: [0, -14], blocks: [], votes: { yes: 0, no: 0 } };
+  born: false, created: false, adm: { on: true, form: "president", size: 1, body: null, sim: 1 }, where: "in", posIn: [SPAWN.womb[0], SPAWN.womb[1]], posOut: [0, -14], blocks: [], homes: [], votes: { yes: 0, no: 0 } };
 try { const v1 = JSON.parse(localStorage.getItem("citizenesia.save.v1") || "null"); if (v1) Object.assign(S, { name: v1.name || "", look: v1.look || S.look, free: !!v1.free, created: !!v1.created }); } catch {}
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
 let dirty = false, resetting = false;
@@ -68,11 +70,11 @@ const powers = () => isAdmin && S.adm.on;   // admin mode; "view as a player" tu
 const round = (v) => Math.round(v * 100) / 100;
 function save() {
   if (resetting) return;
-  S.blocks = builder.save(); S.where = where;
-  if (where === "in") S.posIn = [round(player.x), round(player.z)]; else S.posOut = [round(player.x), round(player.z)];
+  S.blocks = builder.save(); S.homes = homes.list; S.where = where === "house" ? "out" : where;
+  if (where === "house") {} else if (where === "in") S.posIn = [round(player.x), round(player.z)]; else S.posOut = [round(player.x), round(player.z)];
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} dirty = false;
 }
-builder.load(S.blocks);
+builder.load(S.blocks); homes.load(S.homes);
 
 // ---------- the census (world.json): population, today's law, every citizen's level ----------
 let DATA = { day: 1, population: 0, decree: null, citizens: [], links: {}, inbox: null };
@@ -94,7 +96,9 @@ const kindNow = () => (powers() ? S.adm.form : S.born ? "baby" : LV === 2 ? "fet
 
 // ---------- the player ----------
 let where = S.where === "out" && (S.born || powers()) ? "out" : "in";
-const scene = () => (where === "in" ? dpr.scene : out);
+let house = null;   // the inside of the house you are in
+const room = () => (where === "in" ? dpr : where === "house" ? house : null);
+const scene = () => (room() ? room().scene : out);
 const startPos = where === "in" ? (S.created ? S.posIn : [SPAWN.womb[0], SPAWN.womb[1]]) : S.posOut;
 const player = new THREE.Vector3(startPos[0], 0, startPos[1]);
 let vy = 0, facing = Math.PI / 2, avatar = null, moving = false, swimH = 1.1;
@@ -112,15 +116,16 @@ function makeAvatar() {
   scene().add(avatar.g);
 }
 function ground(x, z, fromY = 99) {
-  if (where === "in") return dpr.groundAt(x, z);
+  if (room()) return room().groundAt(x, z);
   return Math.max(heightAt(x, z), builder.groundAt(x, z, fromY));
 }
 function placeAt(w, x, z, camYaw, face) {
   where = w; player.set(x, 0, z); player.y = ground(x, z); vy = 0; seated = null;
   if (camYaw !== undefined) { yaw = camYaw; facing = face ?? camYaw + Math.PI; }
   if (avatar) scene().add(avatar.g);
+  if (w !== "house" && house) { house.dispose(); house = null; }
   if (w === "out") terrain.update(x, z, 9);
-  if (building && w === "in") toggleBuild();
+  if (building && w !== "out") toggleBuild();
   dirty = true; hud(); labels();
 }
 function flash(color = "#fff", then) {
@@ -172,7 +177,10 @@ const ptrUp = (e) => {
 canvas.addEventListener("pointerup", ptrUp); canvas.addEventListener("pointercancel", ptrUp);
 canvas.addEventListener("wheel", (e) => { dist = clamp(dist + e.deltaY * 0.01, 3, 18); }, { passive: true });
 const nearGround = () => terrain.groundMeshes().filter((m) => Math.hypot(m.position.x - player.x, m.position.z - player.z) < 50);
-function aimAt(e) { if (!building) return; ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); builder.aim(ndc, tool === "del", player, nearGround()); }
+function aimAt(e) {
+  if (!building) return; ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); builder.aim(ndc, tool === "del", player, nearGround());
+  if (pickingHouse() && tool === "place") aimHouse(); else houseGhost.visible = false;
+}
 
 const joy = { id: null, cx: 0, cy: 0, x: 0, y: 0 };
 if (touch) {
@@ -205,6 +213,7 @@ function hud() {
   const h = hint(); $("hint").textContent = h ? t9n(h) : "";
   $("hint").style.display = h && !building ? "" : "none";
   $("buildBtn").style.display = where === "out" ? "" : "none";
+  if (where === "house") $("hint").textContent = t9n("hintHouse"), $("hint").style.display = "";
   $("jumpBtn").textContent = avatar && avatar.kind !== "baby" ? t9n("swimUp") : t9n("jump");
 }
 function labels() {
@@ -228,7 +237,7 @@ $("jumpBtn").onclick = () => jump();
 $("buildBtn").onclick = () => toggleBuild();
 
 // ---------- character creator ----------
-function openCreator() { $("creator").style.display = "flex"; creatorUI(); }
+function openCreator() { $("creator").style.display = "flex"; creatorUI(); yaw = facing; pitch = 0.25; dist = 4.8; }   // starts facing you; drag to turn, move to walk
 function creatorUI() {
   $("cName").value = S.name; $("cFree").checked = S.free;
   const sw = (el, field) => {
@@ -284,9 +293,9 @@ $("grow").onclick = (e) => { if (e.target.id === "grow") $("grow").style.display
 // ---------- building (outside only, after birth) ----------
 let building = false, tool = "place", pickT = 0;
 function toggleBuild() {
-  if (!S.created || (where === "in" && !building)) return;
+  if (!S.created || (where !== "out" && !building)) return;
   building = !building; $("bar").style.display = building ? "flex" : "none";
-  if (!building) builder.hide();
+  if (!building) { builder.hide(); houseGhost.visible = false; }
   labels();
 }
 function pick(n) { pickT = n; buildBar(); }
@@ -299,12 +308,20 @@ function buildBar() {
     d.innerHTML = `<b>${(i + 1) % 10}</b>`; d.onclick = () => { pick(i); setTool("place"); }; bar.appendChild(d);
   });
   bar.insertAdjacentHTML("beforeend", '<div class="sep"></div>');
+  HOUSE_TYPES.forEach((T) => {
+    const b = document.createElement("button"); b.className = "btn yellow tool" + (pickT === T.id && tool === "place" ? " on" : "");
+    b.style.cssText = "flex:none;font-size:12px;padding:8px 10px"; b.textContent = `🏠 ${t9n("houseSizes")[T.id]} · ${S.free || powers() ? "∞" : T.price}`;
+    b.onclick = () => { pick(T.id); setTool("place"); }; bar.appendChild(b);
+  });
+  bar.insertAdjacentHTML("beforeend", '<div class="sep"></div>');
   [["place", "btn green"], ["del", "btn red"]].forEach(([k, cls]) => {
     const b = document.createElement("button"); b.className = cls + " tool" + (tool === k ? " on" : ""); b.textContent = t9n(k); b.onclick = () => setTool(k); bar.appendChild(b);
   });
   bar.insertAdjacentHTML("beforeend", `<span class="cost">${S.free ? t9n("free") : t9n("cost")}</span>`);
 }
 function useTool(kind) {
+  if (kind === "del" && sellHouseAt()) return;
+  if (kind !== "del" && pickingHouse()) { buyHouse(); return; }
   const c = builder.target; if (!c) { toast(t9n("noBuildHere"), 1.2); return; }
   if (kind === "del") {
     if (c.existing && builder.remove(c.x, c.y, c.z)) { if (!S.free && !powers()) S.coins += 1; dirty = true; SFX.click(); }
@@ -360,12 +377,18 @@ const OUT_SPOTS = [
   { x: -3.6, z: -2.4, r: 2.2, acts: () => [["aRead", () => toast(`${t9n("population")}: ${(DATA.population || 0).toLocaleString(t9n("locale"))}`)]] },
   { x: 3.6, z: -2.4, r: 2.2, acts: () => [["aRead", () => toast(DATA.decree ? `“${DATA.decree.text}” · @${DATA.decree.author}` : t9n("noDecree"), 4)]] },
 ];
-const SEATED_ACTS = () => [["aMic", () => { say(overPlayer, t9n("interupsi"), 2); SFX.mic(); }], ["aYes", () => vote(true)], ["aNo", () => vote(false)], ["aStand", () => (seated = null)]];
+const SEATED_ACTS = () => seated.house ? [...(seated.eat ? [["hEat", () => { SFX.eat(); toast(t9n("eatMsg")); }]] : []), ...(seated.tv ? HOUSE_ACTS.tv() : []), ["aStand", () => (seated = null)]] : [["aMic", () => { say(overPlayer, t9n("interupsi"), 2); SFX.mic(); }], ["aYes", () => vote(true)], ["aNo", () => vote(false)], ["aStand", () => (seated = null)]];
 let curActs = [], actsSig = "";
 function findActs() {
   if (seated) return SEATED_ACTS();
   if (napT >= 0 || workT >= 0 || bornT >= 0) return [];
   let best = null, bd = 1;
+  if (where === "house") {
+    for (const sp of house.spots) { const d = Math.hypot(player.x - sp.x, player.z - sp.z) / sp.r; if (d < bd) { bd = d; best = sp; } }
+    if (!best) return [];
+    if (best.k === "seat") { const st = best.seat; return [["aSit", () => { seated = { ...st, house: true }; player.x = st.cx; player.z = st.cz; facing = st.facing; }]]; }
+    return HOUSE_ACTS[best.k]();
+  }
   const list = where === "in" ? IN_SPOTS : OUT_SPOTS;
   for (const s of list) { const d = Math.hypot(player.x - s.x, player.z - s.z) / s.r; if (d < bd) { bd = d; best = s; } }
   if (where === "out") for (const w of island.walkers) {   // born citizens say what they do
@@ -387,6 +410,63 @@ function jump() {
   if (seated) { seated = null; return; }
   if (avatar.kind !== "baby") { swimH = Math.min(swimH + 1.6, (where === "in" ? dpr.ceilAt(player.x, player.z) : powers() ? 40 : 8) - 2.2); return; }
   if (player.y <= ground(player.x, player.z, player.y) + 0.01) vy = 8.2;
+}
+
+// ---------- houses ----------
+let doorCool = 0;
+function enterHouse(d) {
+  SFX.door(); doorCool = 1;
+  const out2 = { x: d.x + Math.sin(d.ry) * 0.9, z: d.z + Math.cos(d.ry) * 0.9 };
+  S.posOut = [round(out2.x), round(out2.z)];
+  flash("#fff6ea", () => { const h = buildInterior(d, t9n, quality); if (house) house.dispose(); house = h; placeAt("house", h.spawn.x, h.spawn.z, 0); });
+}
+function leaveHouse() {
+  const d = house.door; SFX.door(); doorCool = 1.2; player.z -= 0.4;
+  flash("#ffffff", () => placeAt("out", d.x + Math.sin(d.ry) * 1.7, d.z + Math.cos(d.ry) * 1.7, d.ry, d.ry));
+}
+const HOUSE_ACTS = {
+  bed: () => [["hSleep", () => { napT = 0; toast(t9n("sleepMsg"), 2.6); dirty = true; }]],
+  fridge: () => [["hFridge", () => { SFX.pop(); toast(t9n("fridgeMsg")); }]],
+  stove: () => [["hCook", () => { SFX.eat(); toast(t9n("cookMsg")); }]],
+  tv: () => [[house.tvOn ? "hTvOff" : "hTvOn", () => { house.setTv(!house.tvOn); SFX.click(); actsSig = ""; }]],
+  light: () => [["hLight", () => { house.setLight(!house.lightOn); SFX.click(); }]],
+  pc: () => [["hPc", openGrow]],
+  books: () => [["hRead", () => toast(t9n("readMsg"), 3)]],
+  exit: () => [],
+};
+// buying a ready-made house in build mode
+let houseTarget = null;
+const houseGhost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.35, depthWrite: false }));
+houseGhost.visible = false; out.add(houseGhost);
+const pickingHouse = () => typeof pickT === "string";
+function aimHouse() {
+  const c = builder.target; builder.hide(); houseTarget = null; houseGhost.visible = false;
+  if (!c) return;
+  const T = typeOf(pickT), half = 0.95 * T.size + 0.1, x = c.x + 0.5, z = c.z + 0.5;
+  const ry = Math.round(Math.atan2(player.x - x, player.z - z) / (Math.PI / 2)) * (Math.PI / 2);   // the door faces you
+  const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]].map(([a, b]) => [x + a * half, z + b * half]);
+  const fits = corners.every(([cx, cz]) => heightAt(cx, cz) > SEA + 0.2 && !noBuild(cx, cz) && Math.abs(heightAt(cx, cz) - heightAt(x, z)) < 1.2)
+    && !homes.solids().some((b) => b.x0 < x + half && b.x1 > x - half && b.z0 < z + half && b.z1 > z - half)
+    && !builder.save().some(([bx, , bz]) => bx + 1 > x - half && bx < x + half && bz + 1 > z - half && bz < z + half)
+    && Math.hypot(player.x - x, player.z - z) > half + 0.6;
+  houseGhost.visible = true; houseGhost.scale.set(half * 2, 3 * T.size, half * 2); houseGhost.position.set(x, heightAt(x, z) + 1.5 * T.size, z);
+  houseGhost.material.color.set(fits ? "#ffffff" : "#ff5f7f");
+  if (fits) houseTarget = { x, z, ry, y: heightAt(x, z), type: T.id };
+}
+const ray = new THREE.Raycaster();
+function sellHouseAt() {
+  ray.setFromCamera(ndc, camera); const hit = ray.intersectObjects(homes.group.children, true)[0];
+  const h = hit && hit.object.userData.home; if (!h) return false;
+  if (h.owner && h.owner !== S.name && !powers()) { toast(t9n("houseNotYours")); return true; }
+  homes.remove(h); const price = typeOf(h.type).price; if (!S.free && !powers()) S.coins += price; dirty = true; SFX.coin(); toast(t9n("houseSold", { n: price })); hud(); return true;
+}
+function buyHouse() {
+  if (!houseTarget) { toast(t9n("houseNoRoom"), 1.4); return; }
+  const T = typeOf(houseTarget.type), fr = S.free || powers();
+  if (!fr && S.coins < T.price) { toast(t9n("broke")); return; }
+  const i = Math.floor(Math.random() * 5);
+  homes.add({ ...houseTarget, id: Date.now().toString(36), wall: WALLS[i], roof: ROOFS[(i + 2) % 5], owner: S.name });
+  if (!fr) S.coins -= T.price; dirty = true; SFX.coin(); toast(t9n("houseBought", { n: fr ? 0 : T.price }), 2.4); houseGhost.visible = false; houseTarget = null; hud();
 }
 
 // ---------- admin panel ----------
@@ -441,7 +521,8 @@ const C_SKY = new THREE.Color(SKY), C_DEEP = new THREE.Color("#5fa9cf");
 let nearSolids = [];
 function blockedXZ(x, z) {
   const r = 0.35, y = player.y;
-  if (where === "in") return !dpr.walkable(x, z) || dpr.solids.some((b) => y < b.h && inBox(b, x, z, r));
+  const rm = room();
+  if (rm) return !rm.walkable(x, z) || rm.solids.some((b) => y < b.h && inBox(b, x, z, r));
   if (island.solids.some((b) => y < b.h && inBox(b, x, z, r)) || nearSolids.some((b) => y < b.h && inBox(b, x, z, r))) return true;
   if (heightAt(x, z) > y + 0.7) return true;   // too steep
   const top = y + 1.3;
@@ -449,8 +530,10 @@ function blockedXZ(x, z) {
 }
 function tryMove(dx, dz) { if (!blockedXZ(player.x + dx, player.z)) player.x += dx; if (!blockedXZ(player.x, player.z + dz)) player.z += dz; }
 function camOK(x, y, z) {
-  if (where === "in") return dpr.walkable(x, z, 0.1) && y < dpr.ceilAt(x, z) - 0.4 && y > dpr.groundAt(x, z) + 0.25 && !dpr.solids.some((b) => y < b.h + 0.2 && inBox(b, x, z, 0.2))
-    && (!dpr.president.g.visible || dpr.president.g.position.distanceTo(tmp.set(x, y, z)) > 2.2);
+  const rm = room();
+  if (rm && rm.wallH && y > rm.wallH + 0.3) return true;   // houses have no roof inside: the camera may look in from above the walls
+  if (rm) return rm.walkable(x, z, 0.1) && y < rm.ceilAt(x, z) - 0.3 && y > rm.groundAt(x, z) + 0.25 && !rm.solids.some((b) => y < b.h + 0.2 && inBox(b, x, z, 0.2))
+    && (rm !== dpr || !dpr.president.g.visible || dpr.president.g.position.distanceTo(tmp.set(x, y, z)) > 2.2);
   return y > heightAt(x, z) + 0.35 && !island.solids.some((b) => y < b.h + 0.3 && inBox(b, x, z, 0.35)) && !builder.has(Math.floor(x), Math.floor(y), Math.floor(z));
 }
 function frame() {
@@ -460,11 +543,11 @@ function frame() {
   let mx = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + joy.x;
   let mz = (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) - (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) + joy.y;
   const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
-  const want = ml > 0.08 && !creating && !panel && bornT < 0 && workT < 0;
+  const want = ml > 0.08 && !panel && bornT < 0 && workT < 0;
   if (want && seated) seated = null;
   if (want && napT >= 0) napT = -1;
   moving = want && !seated;
-  if (where === "out") { nearSolids = terrain.solidsNear(player.x, player.z); terrain.update(player.x, player.z, 2); }
+  if (where === "out") { nearSolids = terrain.solidsNear(player.x, player.z).concat(homes.solids()); terrain.update(player.x, player.z, 2); }
   const underwater = where === "out" && player.y < SEA;
   if (moving) {
     fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(-fwd.z, 0, fwd.x);
@@ -496,6 +579,13 @@ function frame() {
   if (where === "out" && Math.hypot(player.x - island.doorWorld.x, player.z - island.doorWorld.z) < 1.2) {
     SFX.door(); toast(t9n("enter"), 1.4); player.z = island.doorWorld.z + 2; flash("#ffd3dc", () => placeAt("in", SPAWN.lobby[0], SPAWN.lobby[1], SPAWN.lobby[2]));
   }
+  // every house has a door: walk in, and back out through the door inside
+  doorCool -= dt;
+  if (where === "out" && doorCool <= 0 && bornT < 0) {
+    for (const d of [...island.doors, ...terrain.doorsNear(player.x, player.z), ...homes.doors()])
+      if (Math.hypot(player.x - d.x, player.z - d.z) < 1.05) { enterHouse(d); break; }
+  }
+  if (where === "house" && player.z > house.spawn.z + 0.75 && Math.abs(player.x) < 0.8) leaveHouse();
   // metal detector
   const inGate = where === "in" && Math.abs(player.x) < 1.1 && Math.abs(player.z - 46.5) < 0.4;
   if (inGate && !wasInGate) { SFX.beep(); gateT = 1; toast(t9n("gateBeep", { n: S.free ? "∞" : S.coins }), 2); }
@@ -525,14 +615,15 @@ function frame() {
 
   // the places move
   dpr.president.g.visible = !(powers() && S.adm.form === "president");   // the admin is the president
+  if (where === "house") house.update(camera.position);
   if (where === "in") dpr.update(t, dt, { player, cam: camera.position, presidentTalking: presTalkT > 0, gateBeep: gateT > 0 });
   else { island.update(t, { player, doorOpen: Math.hypot(player.x - island.doorWorld.x, player.z - island.doorWorld.z) < 6 ? 1 : 0 }); sun.position.set(player.x + 8, 20, player.z + 10); sun.target.position.copy(player); }
   presTalkT -= dt;
 
   // camera: third person, 360° around the player, pulled in when a wall, a block or the ceiling is in the way
-  const d = creating ? 4.2 : avatar.kind === "baby" ? dist : dist * 0.85;
+  const d = (avatar.kind === "baby" ? dist : dist * 0.85) * (where === "house" ? 1.35 : 1);
   camT.set(player.x, player.y + (avatar.kind === "baby" ? (seated ? 1.0 : 1.2) : 0.7), player.z);
-  const cy = creating ? facing : yaw, cp = creating ? 0.25 : pitch;
+  const inHouse = where === "house" && !creating, cy = yaw, cp = inHouse ? Math.max(pitch, 0.9) : pitch;
   let k = d;
   for (; k > 1.2; k -= 0.25) if (camOK(camT.x + Math.sin(cy) * Math.cos(cp) * k, camT.y + Math.sin(cp) * k, camT.z + Math.cos(cy) * Math.cos(cp) * k)) break;
   camera.position.set(camT.x + Math.sin(cy) * Math.cos(cp) * k, camT.y + Math.sin(cp) * k, camT.z + Math.cos(cy) * Math.cos(cp) * k);
@@ -561,4 +652,4 @@ addEventListener("pagehide", () => S.created && save());
 document.fonts.ready.then(() => labels());
 requestAnimationFrame(frame);
 if (DEBUG) window.__cz = { player, S, builder, dpr, island, terrain, heightAt, placeAt, refreshLevel, toggleBuild, get LV() { return LV; }, get where() { return where; },
-  get acts() { return curActs.map((a) => a[0]); }, openAdmin, get isAdmin() { return isAdmin; }, PLACES, act: (i = 0) => curActs[i] && curActs[i][1](), get DATA() { return DATA; }, get avatar() { return avatar; } };
+  get acts() { return curActs.map((a) => a[0]); }, openAdmin, homes, get house() { return house; }, enterHouse, toggleBuild, pick, setTool, aimHouse, buyHouse, get houseTarget() { return houseTarget; }, ndc, get isAdmin() { return isAdmin; }, PLACES, act: (i = 0) => curActs[i] && curActs[i][1](), get DATA() { return DATA; }, get avatar() { return avatar; } };
