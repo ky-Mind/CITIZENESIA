@@ -39,12 +39,7 @@ Progress is saved in the browser (localStorage). The language follows the device
 
 One device can be the admin's: you play as the president from the videos, at full level (as a person you pick any age from 0 to 80, 16 to start), with endless coins and blocks, any form (president, cell, fetus, baby), any size and body colour, no drowning, and teleports to every room and place. "View as a player" switches the powers off and lets you try each census level, or start over as a new player, to see how players grow.
 
-```bash
-npm run admin-key        # makes a key: .admin-key (the key) and .env.local (its hash); both stay off git
-npm run dev              # restart after making a key
-```
-
-Open the game once with `?admin=<key>` on your device (the key is removed from the address bar). The ADMIN button then shows at the top. The game holds only the key's hash; since the game runs on each player's own device, this hides the panel but does not protect shared data. That needs the server that comes with chat and multiplayer.
+Open the game once at `/kymind` (for example `http://localhost:5173/kymind`, or the same path on the online address) on any device you want to be the admin's. The ADMIN button then shows at the top, and the address switches back to the main page. Since the game runs on each player's own device, admin powers change only that device's game; shared data (chat, multiplayer) will need a real login on a server.
 
 ## World data
 

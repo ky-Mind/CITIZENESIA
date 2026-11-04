@@ -2,7 +2,7 @@
 // You grow through real comments: the census reads them each episode and writes public/data/world.json (level, likes, role).
 // At level BABY you enter the egg, are born, and walk out into an endless world of islands and sea, where you work and build.
 import * as THREE from "three";
-import { SKY, clamp, lerp, fnv, sha256 } from "./kit.js";
+import { SKY, clamp, lerp, fnv } from "./kit.js";
 import { sperm, swim, talk, baby, walk, sit, fetus, grow, STAGE_YEARS, blinkAt, LOOK_COLOURS } from "./actors.js";
 import { buildIsland, OFFICE } from "./island.js";
 import { buildDPR, SPAWN, EXIT, EGG } from "./dpr.js";
@@ -17,16 +17,13 @@ const touch = matchMedia("(pointer: coarse)").matches;
 const params = new URLSearchParams(location.search), DEBUG = params.has("debug");
 const quality = { low: touch, shadows: !touch };
 
-// admin (the presenter): a device becomes the admin's after opening the game once with ?admin=<key> (see scripts/admin-key.mjs).
-// The game only knows the key's hash. Everything runs on the player's own device, so this hides the panel, it does not guard data.
-const ADMIN_HASH = import.meta.env.VITE_ADMIN_HASH || "";
+// admin (the presenter): opening the game at /kymind makes this device the admin's, and it stays admin from then on.
+// Everything runs on the player's own device, so admin powers change only that device's game.
 let isAdmin = false;
 try {
-  const k = params.get("admin");
-  if (k && ADMIN_HASH && sha256(k) === ADMIN_HASH) localStorage.setItem("citizenesia.admin", ADMIN_HASH);
-  if (k) { params.delete("admin"); history.replaceState(null, "", location.pathname + (params.toString() ? "?" + params : "")); }
-  isAdmin = !!ADMIN_HASH && localStorage.getItem("citizenesia.admin") === ADMIN_HASH;
-} catch {}   // phones: no shadows, fewer bubbles and swimmers, shorter view
+  if (/^\/kymind\/?$/i.test(location.pathname)) { localStorage.setItem("citizenesia.admin", "1"); history.replaceState(null, "", "/" + location.search); }
+  isAdmin = localStorage.getItem("citizenesia.admin") === "1";
+} catch {}
 
 // ---------- renderer ----------
 let renderer;

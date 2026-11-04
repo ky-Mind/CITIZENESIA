@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview",
-    "admin-key": "node scripts/admin-key.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "three": "^0.170.0"
