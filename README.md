@@ -4,12 +4,16 @@ A country whose citizens are born from its viewers. This is the playable world o
 
 ## Play
 
+Online: https://citizenesia.hilmykia.workers.dev (admin: https://citizenesia.hilmykia.workers.dev/kymind)
+
+On your computer:
+
 ```bash
 npm install
 npm run dev
 ```
 
-Open the address Vite prints (it also listens on your network, so a phone on the same Wi-Fi can join). The game needs WebGL.
+Open the address Vite prints. `npm run deploy` publishes the game to Cloudflare with the `cf` CLI (`cloudflare.config.ts`) (it also listens on your network, so a phone on the same Wi-Fi can join). The game needs WebGL.
 
 ## How it works (v0.2)
 
