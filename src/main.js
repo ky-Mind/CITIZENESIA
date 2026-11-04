@@ -1,103 +1,162 @@
-// CITIZENESIA: THE GAME v0.1. You start as a cell, swim into The People's House to be born, work at the job office for coins,
-// and build with blocks. World data (population, today's decree, citizens) comes from public/data/world.json, written by the census.
+// CITIZENESIA: THE GAME v0.2. You start as a cell inside The People's House (its inside is the womb from the video).
+// You grow through real comments: the census reads them each episode and writes public/data/world.json (level, likes, role).
+// At level BABY you enter the egg, are born, and walk out into an endless world of islands and sea, where you work and build.
 import * as THREE from "three";
-import { SKY, PINK, clamp, lerp } from "./kit.js";
-import { sperm, swim, talk, baby, walk, blinkAt, LOOK_COLOURS } from "./actors.js";
-import { buildWorld, ISLAND_R, OFFICE } from "./world.js";
+import { SKY, clamp, lerp, fnv } from "./kit.js";
+import { sperm, swim, talk, baby, walk, sit, fetus, blinkAt, LOOK_COLOURS } from "./actors.js";
+import { buildIsland, OFFICE } from "./island.js";
+import { buildDPR, SPAWN, EXIT, EGG } from "./dpr.js";
+import { createTerrain, heightAt, SEA, HOME_R } from "./terrain.js";
 import { createBuilder, BLOCKS } from "./build.js";
 import { t9n, getLang, setLang } from "./i18n.js";
+import { SFX } from "./sfx.js";
 
 const $ = (id) => document.getElementById(id);
 const touch = matchMedia("(pointer: coarse)").matches;
+const params = new URLSearchParams(location.search), DEBUG = params.has("debug");
+const quality = { low: touch, shadows: !touch };   // phones: no shadows, fewer bubbles and swimmers, shorter view
 
-// ---------- renderer, scene, light (as in the video) ----------
+// ---------- renderer ----------
 let renderer;
-try { renderer = new THREE.WebGLRenderer({ canvas: $("gl"), antialias: true }); }
+try { renderer = new THREE.WebGLRenderer({ canvas: $("gl"), antialias: !touch, powerPreference: "high-performance" }); }
 catch (e) {   // no 3D in this browser: say so instead of a blank sky
   document.body.insertAdjacentHTML("beforeend", '<div class="hud card" style="left:50%;top:50%;transform:translate(-50%,-50%);padding:18px 22px;max-width:86vw;text-align:center;font:800 16px/1.4 Poppins">CITIZENESIA needs WebGL (3D). Open it in Chrome, Safari or Firefox with hardware acceleration on.</div>');
   throw e;
 }
-renderer.setPixelRatio(Math.min(devicePixelRatio, touch ? 1.5 : 2));
-renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setPixelRatio(Math.min(devicePixelRatio, touch ? 1.25 : 1.75));
+renderer.shadowMap.enabled = quality.shadows; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; renderer.outputColorSpace = THREE.SRGBColorSpace;
-const scene = new THREE.Scene(); scene.background = new THREE.Color(SKY); scene.fog = new THREE.Fog(SKY, 45, 110);
-const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 300);
-scene.add(new THREE.HemisphereLight("#fff8f0", "#c9a4ae", 1.35));
-const sun = new THREE.DirectionalLight("#fff3e2", 2.2); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 80 }); sun.shadow.bias = -0.0004; sun.shadow.radius = 4;
-scene.add(sun, sun.target);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
 function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.userData.lift = undefined; camera.clearViewOffset(); camera.updateProjectionMatrix(); }
 addEventListener("resize", resize); resize();
 
-const world = buildWorld(scene, t9n);
-const NOBUILD_OFFICE = { x0: OFFICE.x - 5, x1: OFFICE.x + 5, z0: OFFICE.z - 4.2, z1: OFFICE.z + 4.2 };
+// ---------- the two places: inside The People's House, and the world outside ----------
+const dpr = buildDPR(t9n, quality);
+const out = new THREE.Scene(); out.background = new THREE.Color(SKY); out.fog = new THREE.Fog(SKY, 40, touch ? 85 : 120);
+out.add(new THREE.HemisphereLight("#fff8f0", "#c9a4ae", 1.35));
+const sun = new THREE.DirectionalLight("#fff3e2", 2.2); sun.castShadow = quality.shadows; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 90 }); sun.shadow.bias = -0.0004; sun.shadow.radius = 4;
+out.add(sun, sun.target);
+const terrain = createTerrain(out, touch ? 2 : 3);
+const island = buildIsland(out, t9n);
 const inBox = (b, x, z, m = 0) => x > b.x0 - m && x < b.x1 + m && z > b.z0 - m && z < b.z1 + m;
-const noBuild = (x, z) => Math.hypot(x, z) < 6.2 || world.solids.some((b) => inBox(b, x, z, 0.4)) || inBox(NOBUILD_OFFICE, x, z)
-  || Math.hypot(x - world.doorWorld.x, z - world.doorWorld.z) < 2.2;
-const builder = createBuilder(scene, camera, noBuild);
+const NOBUILD_OFFICE = { x0: OFFICE.x - 5, x1: OFFICE.x + 5, z0: OFFICE.z - 4.2, z1: OFFICE.z + 4.2 };
+const noBuild = (x, z) => Math.hypot(x, z) < 6.2 || island.solids.some((b) => inBox(b, x, z, 0.4)) || inBox(NOBUILD_OFFICE, x, z)
+  || Math.hypot(x - island.doorWorld.x, z - island.doorWorld.z) < 3;
+const builder = createBuilder(out, camera, noBuild);
 
 // ---------- save ----------
-const KEY = "citizenesia.save.v1";
-let S = { name: "", look: { cap: "#e0384b", band: null, glasses: true, stache: true, helmet: false }, level: 0, coins: 0, free: false, hired: false, created: false, pos: [0, 7], blocks: [] };
+const KEY = "citizenesia.save.v2", ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const newCode = () => "CZ-" + Array.from({ length: 4 }, () => ABC[Math.floor(Math.random() * ABC.length)]).join("");
+let S = { name: "", code: newCode(), look: { cap: "#e0384b", band: null, glasses: true, stache: true, helmet: false }, coins: 0, free: false, hired: false,
+  born: false, created: false, where: "in", posIn: [SPAWN.womb[0], SPAWN.womb[1]], posOut: [0, -14], blocks: [], votes: { yes: 0, no: 0 } };
+try { const v1 = JSON.parse(localStorage.getItem("citizenesia.save.v1") || "null"); if (v1) Object.assign(S, { name: v1.name || "", look: v1.look || S.look, free: !!v1.free, created: !!v1.created }); } catch {}
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
-let dirty = false;
-function save() { S.blocks = builder.save(); S.pos = [round(player.x), round(player.z)]; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} dirty = false; }
+let dirty = false, resetting = false;
 const round = (v) => Math.round(v * 100) / 100;
+function save() {
+  if (resetting) return;
+  S.blocks = builder.save(); S.where = where;
+  if (where === "in") S.posIn = [round(player.x), round(player.z)]; else S.posOut = [round(player.x), round(player.z)];
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} dirty = false;
+}
 builder.load(S.blocks);
 
-// ---------- world data from the census ----------
-let DATA = { day: 1, population: 0, decree: null, citizens: [] };
-const paintData = () => world.setData(DATA, t9n("locale"));
-fetch("data/world.json").then((r) => r.json()).then((d) => { DATA = d; paintData(); world.setCitizens(d.citizens || []); }).catch(() => paintData());
+// ---------- the census (world.json): population, today's law, every citizen's level ----------
+let DATA = { day: 1, population: 0, decree: null, citizens: [], links: {}, inbox: null };
+const norm = (c) => (typeof c === "string" ? { name: c.replace(/^@/, ""), level: 1 } : { ...c, name: String(c.name || "").replace(/^@/, ""), level: c.level || 1 });
+const paintData = () => { island.setData(DATA, t9n("locale")); dpr.setData(DATA, t9n("locale"), S.votes); };
+fetch("data/world.json").then((r) => r.json()).then((d) => { DATA = { ...DATA, ...d, links: d.links || {}, citizens: (d.citizens || []).map(norm) }; applyData(); }).catch(() => applyData());
+function applyData() { paintData(); island.setCitizens(DATA.citizens); dpr.setCitizens(DATA.citizens); refreshLevel(); }
+const me = () => { const n = (S.name || "").toLowerCase(); return n ? DATA.citizens.find((c) => c.name.toLowerCase() === n) || null : null; };
+const linked = (c) => !!c && [].concat(c.v || []).includes(fnv(S.code));
+let LV = 1;   // 1 cell, 2 fetus, 3 baby, 4 citizen (from the census; only for a linked account)
+function refreshLevel() {
+  const c = me(); LV = linked(c) ? clamp(c.level | 0, 1, 4) : 1;
+  if (DEBUG && params.get("level")) LV = clamp(+params.get("level"), 1, 4);
+  if (avatar && avatar.kind !== kindNow()) makeAvatar();
+  hud();
+}
+const kindNow = () => (S.born ? "baby" : LV === 2 ? "fetus" : "cell");
 
 // ---------- the player ----------
-const player = new THREE.Vector3(S.pos[0], 0, S.pos[1]);
-let vy = 0, facing = Math.PI, avatar = null, moving = false;
+let where = S.where === "out" && S.born ? "out" : "in";
+const scene = () => (where === "in" ? dpr.scene : out);
+const startPos = where === "in" ? (S.created ? S.posIn : [SPAWN.womb[0], SPAWN.womb[1]]) : S.posOut;
+const player = new THREE.Vector3(startPos[0], 0, startPos[1]);
+let vy = 0, facing = Math.PI / 2, avatar = null, moving = false, swimH = 1.1;
+let yaw = SPAWN.womb[2], pitch = 0.35, dist = 7;
 const handle = () => "@" + (S.name || t9n("namePh"));
 function makeAvatar() {
-  if (avatar) scene.remove(avatar.g);
-  avatar = S.level === 0 ? { kind: "cell", ...sperm({ name: handle(), look: S.look, ph: 0 }) } : { kind: "baby", ...baby(handle(), S.look) };
-  avatar.g.scale.setScalar(avatar.kind === "cell" ? 0.45 : 0.75);
-  scene.add(avatar.g);
+  if (avatar) avatar.g.parent?.remove(avatar.g);
+  const kind = kindNow();
+  if (kind === "cell") { avatar = { kind, ...sperm({ name: handle(), look: S.look }) }; avatar.g.scale.setScalar(0.45 * (1 + Math.min(1, (me()?.likes || 0) / 500) * 0.6)); }
+  else if (kind === "fetus") { avatar = { kind, ...fetus(handle()) }; avatar.g.scale.setScalar(0.42); }
+  else { avatar = { kind, ...baby(handle(), S.look) }; avatar.g.scale.setScalar(0.75); }
+  scene().add(avatar.g);
 }
-const groundY = () => builder.groundAt(player.x, player.z, player.y);
+function ground(x, z, fromY = 99) {
+  if (where === "in") return dpr.groundAt(x, z);
+  return Math.max(heightAt(x, z), builder.groundAt(x, z, fromY));
+}
+function placeAt(w, x, z, camYaw, face) {
+  where = w; player.set(x, 0, z); player.y = ground(x, z); vy = 0; seated = null;
+  if (camYaw !== undefined) { yaw = camYaw; facing = face ?? camYaw + Math.PI; }
+  if (avatar) scene().add(avatar.g);
+  if (w === "out") terrain.update(x, z, 9);
+  if (building && w === "in") toggleBuild();
+  dirty = true; hud(); labels();
+}
+function flash(color = "#fff", then) {
+  const f = $("flash"); f.style.background = color; f.style.opacity = 1;
+  setTimeout(() => { then && then(); setTimeout(() => (f.style.opacity = 0), 60); }, 380);
+}
 
-// ---------- input: keys, mouse/touch orbit, joystick ----------
+// ---------- input: keys, drag to look around (360°), pinch/wheel zoom, joystick ----------
 const keys = new Set();
+const typing = (e) => /INPUT|TEXTAREA/.test(e.target.tagName);
 addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT") return;
+  if (typing(e)) return;
   keys.add(e.code);
-  if (e.code === "Space") jump();
-  if (e.code === "KeyE" || e.code === "Enter") doAction();
+  if (e.code === "Space") { e.preventDefault(); jump(); }
+  const ai = { KeyE: 0, Enter: 0, KeyR: 1, KeyF: 2, KeyG: 3 }[e.code];
+  if (ai !== undefined && curActs[ai]) curActs[ai][1]();
   if (e.code === "KeyB") toggleBuild();
   if (e.code === "KeyX" && building) setTool(tool === "place" ? "del" : "place");
+  if (e.code === "Escape") { $("grow").style.display = "none"; $("menu").style.display = "none"; }
   if (building && /^Digit\d$/.test(e.code)) { const n = (+e.code.slice(5) + 9) % 10; if (BLOCKS[n]) pick(n); }
 });
 addEventListener("keyup", (e) => keys.delete(e.code));
-let yaw = 0, pitch = 0.42, dist = 7;
-const drag = { id: null, x: 0, y: 0, moved: 0, button: 0 };
-const ndc = new THREE.Vector2();
-const canvas = $("gl");
+addEventListener("blur", () => keys.clear());
+const canvas = $("gl"), ptrs = new Map(), drag = { id: null, x: 0, y: 0, moved: 0, button: 0 }, ndc = new THREE.Vector2();
+let pinch0 = 0, dist0 = 7;
+const pinchLen = () => { const [a, b] = [...ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (e) => {
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); canvas.setPointerCapture(e.pointerId);
+  if (ptrs.size === 2) { pinch0 = pinchLen(); dist0 = dist; drag.id = null; return; }
   if (drag.id !== null) return;
   Object.assign(drag, { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, button: e.button });
-  canvas.setPointerCapture(e.pointerId);
   aimAt(e);
 });
 canvas.addEventListener("pointermove", (e) => {
+  if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2) { const l = pinchLen(); if (pinch0 > 0 && l > 0) dist = clamp(dist0 * pinch0 / l, 3, 18); return; }
   if (drag.id === e.pointerId) {
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
-    if (drag.moved > 6) { yaw -= dx * 0.006; pitch = clamp(pitch + dy * 0.005, 0.05, 1.25); }
+    if (drag.moved > 6) { yaw -= dx * (touch ? 0.008 : 0.006); pitch = clamp(pitch + dy * 0.005, -0.25, 1.4); }
   } else if (!touch) aimAt(e);
 });
-canvas.addEventListener("pointerup", (e) => {
+const ptrUp = (e) => {
+  ptrs.delete(e.pointerId);
   if (drag.id !== e.pointerId) return;
   if (building && drag.moved <= 6) { aimAt(e); useTool(drag.button === 2 ? "del" : tool); }
   drag.id = null;
-});
-canvas.addEventListener("wheel", (e) => { dist = clamp(dist + e.deltaY * 0.01, 4, 16); }, { passive: true });
-function aimAt(e) { if (!building) return; ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); builder.aim(ndc, tool === "del", player); }
+};
+canvas.addEventListener("pointerup", ptrUp); canvas.addEventListener("pointercancel", ptrUp);
+canvas.addEventListener("wheel", (e) => { dist = clamp(dist + e.deltaY * 0.01, 3, 18); }, { passive: true });
+const nearGround = () => terrain.groundMeshes().filter((m) => Math.hypot(m.position.x - player.x, m.position.z - player.z) < 50);
+function aimAt(e) { if (!building) return; ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); builder.aim(ndc, tool === "del", player, nearGround()); }
 
 const joy = { id: null, cx: 0, cy: 0, x: 0, y: 0 };
 if (touch) {
@@ -114,33 +173,41 @@ if (touch) {
 }
 
 // ---------- HUD ----------
-let toastT = 0;
-function toast(msg, s = 2.6) { const el = $("toast"); el.textContent = msg; el.classList.add("on"); toastT = s; }
+let toastT = 0, stampT = 0;
+function toast(msg, s = 2.8) { const el = $("toast"); el.textContent = msg; el.classList.add("on"); toastT = s; }
+function stamp(txt) { const el = $("stamp"); el.textContent = txt; el.classList.add("on"); stampT = 1.3; }
+function hint() {
+  if (where === "in") return S.born ? "hintExit" : LV >= 3 ? "hintEgg" : LV === 2 ? "hintFetus" : "hintCell";
+  return !S.hired ? "hintWork" : builder.count() < 3 ? "hintBuild" : "";
+}
 function hud() {
   $("meName").textContent = handle();
-  $("meLv").textContent = t9n(["lvCell", "lvBaby", "lvCitizen"][Math.min(S.level, 2)]);
+  $("meLv").textContent = t9n("levels")[LV];
   $("meCoins").textContent = S.free ? "∞" : S.coins;
-  $("hint").textContent = S.level === 0 ? t9n("hintBorn") : !S.hired ? t9n("hintWork") : builder.count() < 3 ? t9n("hintBuild") : "";
-  $("hint").style.display = $("hint").textContent && !building ? "" : "none";
+  const h = hint(); $("hint").textContent = h ? t9n(h) : "";
+  $("hint").style.display = h && !building ? "" : "none";
+  $("buildBtn").style.display = where === "out" ? "" : "none";
+  $("jumpBtn").textContent = avatar && avatar.kind !== "baby" ? t9n("swimUp") : t9n("jump");
 }
 function labels() {
   document.documentElement.lang = getLang();
-  $("langBtn").textContent = t9n("lang"); $("jumpBtn").textContent = t9n("jump"); $("buildBtn").textContent = building ? t9n("done") : t9n("build");
-  $("editBtn").textContent = t9n("edit"); $("resetBtn").textContent = t9n("reset");
+  $("langBtn").textContent = t9n("lang"); $("buildBtn").textContent = building ? t9n("done") : t9n("build");
+  $("editBtn").textContent = t9n("edit"); $("resetBtn").textContent = t9n("reset"); $("growBtn").textContent = t9n("grow");
   $("cSub").textContent = t9n("subtitle"); $("cNameL").textContent = t9n("yourName"); $("cName").placeholder = t9n("namePh");
   $("cLookL").textContent = t9n("look"); $("cFreeL").textContent = t9n("freeMode"); $("cGo").textContent = S.created ? "OK" : t9n("play");
-  world.paintTexts(); paintData(); buildBar(); creatorUI(); hud();
+  island.paintTexts(); dpr.paintTexts(); paintData(); buildBar(); creatorUI(); hud(); actsSig = "";
 }
 $("langBtn").onclick = () => { setLang(getLang() === "id" ? "en" : "id"); labels(); makeAvatar(); };
 $("menuBtn").onclick = () => { const m = $("menu"); m.style.display = m.style.display === "flex" ? "none" : "flex"; };
 $("editBtn").onclick = () => { $("menu").style.display = "none"; openCreator(); };
+$("growBtn").onclick = () => { $("menu").style.display = "none"; openGrow(); };
+$("me").onclick = () => openGrow();
 $("resetBtn").onclick = () => {
   if (!confirm(t9n("resetAsk"))) return;
-  try { localStorage.removeItem(KEY); } catch {} location.reload();
+  resetting = true; try { localStorage.removeItem(KEY); localStorage.removeItem("citizenesia.save.v1"); } catch {} location.reload();
 };
 $("jumpBtn").onclick = () => jump();
 $("buildBtn").onclick = () => toggleBuild();
-$("act").onclick = () => doAction();
 
 // ---------- character creator ----------
 function openCreator() { $("creator").style.display = "flex"; creatorUI(); }
@@ -163,15 +230,44 @@ function creatorUI() {
     tg.appendChild(b);
   });
 }
-$("cName").addEventListener("input", (e) => { S.name = e.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 20); e.target.value = S.name; makeAvatar(); hud(); });
+$("cName").addEventListener("input", (e) => { S.name = e.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 30); e.target.value = S.name; refreshLevel(); makeAvatar(); });
 $("cFree").addEventListener("change", (e) => { S.free = e.target.checked; hud(); buildBar(); });
-$("cGo").onclick = () => { if (!S.name) S.name = t9n("namePh"); S.created = true; $("creator").style.display = "none"; makeAvatar(); labels(); save(); };
+$("cGo").onclick = () => { if (!S.name) S.name = t9n("namePh"); S.created = true; $("creator").style.display = "none"; refreshLevel(); makeAvatar(); labels(); save(); SFX.pop(); };
 
-// ---------- building ----------
+// ---------- grow through comments (Instagram, TikTok, YouTube, or the in-app box once online) ----------
+function openGrow() {
+  const c = me(), ok = linked(c);
+  $("gTitle").textContent = t9n("gTitle"); $("gHow").textContent = t9n("gHow");
+  $("gLadder").innerHTML = t9n("gLadder").map((l) => `<li>${l}</li>`).join("");
+  $("gYou").textContent = `${t9n("gYou", { name: S.name || t9n("namePh"), lv: t9n("levels")[LV] })} · ${ok ? t9n("gVerified") : t9n("gNotVerified")}`;
+  $("gCodeL").textContent = t9n("gCode"); $("gCode").textContent = S.code; $("gText").placeholder = t9n("gPh");
+  const L = DATA.links || {};
+  [["gIG", "gCopyIG", L.instagram], ["gTT", "gTT", L.tiktok], ["gYT", "gYT", L.youtube]].forEach(([id, k, url]) => {
+    const b = $(id); b.textContent = t9n(k) + (url ? "" : " " + t9n("gSoon")); b.disabled = !url;
+    b.onclick = () => { if (!url) return; copy(commentText()); toast(t9n("gCopied"), 3); window.open(url, "_blank", "noopener"); };
+  });
+  $("gSend").textContent = t9n("gSend"); $("gSend").disabled = !DATA.inbox; $("gClose").textContent = t9n("gClose");
+  $("gNote").textContent = DATA.inbox ? "" : t9n("gNoInbox");
+  $("grow").style.display = "flex";
+}
+const commentText = () => `${$("gText").value.trim()} ${S.code}`.trim();
+function copy(txt) {
+  const fallback = () => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch {} ta.remove(); };
+  try { navigator.clipboard.writeText(txt).catch(fallback); } catch { fallback(); }
+}
+$("gSend").onclick = () => {
+  if (!DATA.inbox) return;
+  fetch(DATA.inbox, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: S.name, code: S.code, text: $("gText").value.trim() }) })
+    .then((r) => { if (!r.ok) throw 0; toast(t9n("gSent"), 3); $("gText").value = ""; }).catch(() => toast("…", 1));
+};
+$("gClose").onclick = () => ($("grow").style.display = "none");
+$("grow").onclick = (e) => { if (e.target.id === "grow") $("grow").style.display = "none"; };
+
+// ---------- building (outside only, after birth) ----------
 let building = false, tool = "place", pickT = 0;
 function toggleBuild() {
-  if (!S.created) return;
-  building = !building; $("bar").style.display = building ? "flex" : "none"; $("cross").style.display = "none";
+  if (!S.created || (where === "in" && !building)) return;
+  building = !building; $("bar").style.display = building ? "flex" : "none";
   if (!building) builder.hide();
   labels();
 }
@@ -193,130 +289,211 @@ function buildBar() {
 function useTool(kind) {
   const c = builder.target; if (!c) { toast(t9n("noBuildHere"), 1.2); return; }
   if (kind === "del") {
-    if (c.existing && builder.remove(c.x, c.y, c.z)) { if (!S.free) S.coins += 1; dirty = true; }
+    if (c.existing && builder.remove(c.x, c.y, c.z)) { if (!S.free) S.coins += 1; dirty = true; SFX.click(); }
   } else {
-    // never bury the player
-    const px = Math.floor(player.x), pz = Math.floor(player.z);
-    if (c.x === px && c.z === pz && c.y >= Math.floor(player.y) - 0 && c.y < player.y + 1.6) return;
+    const px = Math.floor(player.x), pz = Math.floor(player.z);   // never bury the player
+    if (c.x === px && c.z === pz && c.y >= Math.floor(player.y) && c.y < player.y + 1.6) return;
     if (!S.free && S.coins < 1) { toast(t9n("broke")); return; }
-    if (builder.add(c.x, c.y, c.z, pickT)) { if (!S.free) S.coins -= 1; dirty = true; }
+    if (builder.add(c.x, c.y, c.z, pickT)) { if (!S.free) S.coins -= 1; dirty = true; SFX.click(); }
   }
   hud();
 }
 
-// ---------- actions: be born, work, talk to the president ----------
-let near = null, workT = -1, talkT = 0, sayI = 0, bornT = -1, doorOpen = 0;
-function doAction() {
-  if (near === "office") {
-    if (S.level === 0) { toast(t9n("needBorn")); return; }
-    if (!S.hired) { toast(t9n("reject"), 2.2); setTimeout(() => { toast(t9n("hired")); S.hired = true; dirty = true; hud(); }, 2300); return; }
-    if (workT < 0) { workT = 0; $("prog").style.display = "block"; $("progT").textContent = t9n("working"); }
-  } else if (near === "president") {
-    const lines = t9n("presidentSays");
-    const line = lines[sayI++ % lines.length].replace("{pop}", (DATA.population || 0).toLocaleString(t9n("locale"))).replace("{decree}", DATA.decree ? DATA.decree.text : t9n("noDecree"));
-    const b = $("bubble"); b.textContent = line; b.style.display = "block"; talkT = 3;
-  }
+// ---------- speech bubbles ----------
+let bubbleT = 0, bubbleAt = null;
+function say(getPos, text, s = 3) { const b = $("bubble"); b.textContent = text; b.style.display = "block"; bubbleT = s; bubbleAt = getPos; }
+const overPlayer = () => tmp.copy(player).add(new THREE.Vector3(0, avatar.kind === "baby" ? 2.0 : 1.6, 0));
+
+// ---------- everything you can use ----------
+let seated = null, napT = -1, workT = -1, bornT = -1, gateT = 0, wasInGate = false, sayI = 0, presTalkT = 0;
+const lineFor = (s) => s.replace("{pop}", (DATA.population || 0).toLocaleString(t9n("locale"))).replace("{decree}", DATA.decree ? DATA.decree.text : t9n("noDecree"));
+function vote(yes) {
+  S.votes[yes ? "yes" : "no"]++; dirty = true; paintData(); (yes ? SFX.yes : SFX.no)(); toast(t9n("voted"), 2.4);
 }
-function jump() { if (S.level > 0 && player.y <= groundY() + 0.01 && !building) vy = 8.2; }
+function enterEgg() {
+  if (S.born) { toast(t9n("eggBorn")); return; }
+  if (LV >= 3) { bornT = 0; dpr.flashEgg(); SFX.born(); return; }
+  toast(t9n(LV === 2 ? "eggFetus" : "eggCell"), 3.4); SFX.no();
+}
+function work() {
+  if (!S.hired) { toast(t9n("reject"), 2.2); SFX.no(); setTimeout(() => { toast(t9n("hired")); SFX.yes(); S.hired = true; dirty = true; hud(); }, 2300); return; }
+  if (workT < 0) { workT = 0; $("prog").style.display = "block"; $("progT").textContent = t9n("working"); }
+}
+const SP = dpr.spots;
+const IN_SPOTS = [
+  { ...SP.reception, acts: () => [["aCard", () => { const c = me(); toast(linked(c) ? t9n("card", { no: String(c.no || 0).padStart(4, "0"), name: c.name, lv: t9n("levels")[LV], role: c.role ? " · " + c.role : "" }) : t9n("cardNone", { code: S.code }), 4); SFX.pop(); }]] },
+  { ...SP.aspiration, acts: () => [["aGrow", openGrow]] },
+  { ...SP.podium, acts: () => [["aSpeech", () => { say(overPlayer, t9n("speech", { decree: DATA.decree ? DATA.decree.text : t9n("noDecree") }), 4); SFX.mic(); }]] },
+  { ...SP.gavel, acts: () => [["aGavel", () => { dpr.swingGavel(); SFX.gavel(); setTimeout(() => stamp(t9n("sah")), 300); }]] },
+  { ...SP.president, acts: () => [["aTalk", () => { say(() => tmp.copy(dpr.president.g.position).add(new THREE.Vector3(0, 1.6, 0)), lineFor(t9n("presidentSays")[sayI++ % 4]), 3.4); presTalkT = 3.4; }]] },
+  { ...SP.lights, acts: () => [["aLights", () => { dpr.setLights(!dpr.lightsOn); SFX.click(); toast(t9n(dpr.lightsOn ? "lightsOn" : "lightsOff"), 2.4); }]] },
+  { ...SP.egg, acts: () => [["aEgg", enterEgg]] },
+  { ...SP.snack, acts: () => [["aEat", () => { SFX.eat(); toast(t9n("snack")); }]] },
+  { ...SP.water, acts: () => [["aDrink", () => { SFX.pop(); toast(t9n("drink")); }]] },
+  { ...SP.tv, acts: () => [["aTv", () => toast(t9n("tvNow"))]] },
+  { ...SP.vending, acts: () => [["aVend", () => { if (!S.free && S.coins < 1) { toast(t9n("broke")); return; } if (!S.free) S.coins--; dirty = true; SFX.coin(); toast(t9n("vend")); hud(); }]] },
+  { ...SP.nap, acts: () => [["aNap", () => { napT = 0; toast(t9n("nap"), 2.5); }]] },
+  { ...SP.census, acts: () => [["aCensus", () => toast((DATA.citizens || []).slice(0, 8).map((c) => "@" + c.name + " (" + t9n("levels")[c.level] + ")").join(" · ") || "—", 5)]] },
+  ...dpr.seats.map((s) => ({ x: s.cx, z: s.cz, r: 0.85, acts: () => [["aSit", () => { seated = s; player.x = s.cx; player.z = s.cz; facing = s.facing; toast(t9n("sitDown"), 1.6); }]] })),
+];
+const OUT_SPOTS = [
+  { x: island.officeDesk.x, z: island.officeDesk.z, r: 3, acts: () => [["aWork", work]] },
+  { x: island.FLAG.x, z: island.FLAG.z + 0.8, r: 2.4, acts: () => [["aFlag", () => toast(t9n("flagInfo"), 4.5)]] },
+  { x: -3.6, z: -2.4, r: 2.2, acts: () => [["aRead", () => toast(`${t9n("population")}: ${(DATA.population || 0).toLocaleString(t9n("locale"))}`)]] },
+  { x: 3.6, z: -2.4, r: 2.2, acts: () => [["aRead", () => toast(DATA.decree ? `“${DATA.decree.text}” · @${DATA.decree.author}` : t9n("noDecree"), 4)]] },
+];
+const SEATED_ACTS = () => [["aMic", () => { say(overPlayer, t9n("interupsi"), 2); SFX.mic(); }], ["aYes", () => vote(true)], ["aNo", () => vote(false)], ["aStand", () => (seated = null)]];
+let curActs = [], actsSig = "";
+function findActs() {
+  if (seated) return SEATED_ACTS();
+  if (napT >= 0 || workT >= 0 || bornT >= 0) return [];
+  let best = null, bd = 1;
+  const list = where === "in" ? IN_SPOTS : OUT_SPOTS;
+  for (const s of list) { const d = Math.hypot(player.x - s.x, player.z - s.z) / s.r; if (d < bd) { bd = d; best = s; } }
+  if (where === "out") for (const w of island.walkers) {   // born citizens say what they do
+    const d = Math.hypot(player.x - w.x, player.z - w.z) / 2; if (d < bd) { bd = d; best = { acts: () => [["aTalk", () => say(() => tmp.copy(w.b.g.position).add(new THREE.Vector3(0, 2, 0)), `@${w.c.name}: ${w.c.life || w.c.role || "…"}`, 3)]] }; }
+  }
+  return best ? best.acts() : [];
+}
+function renderActs(list) {
+  const sig = list.map((a) => a[0]).join("|"); if (sig === actsSig) return; actsSig = sig; curActs = list;
+  const box = $("acts"); box.innerHTML = "";
+  list.forEach(([k, fn], i) => {
+    const b = document.createElement("button"); b.className = "btn yellow";
+    b.innerHTML = t9n(k) + (touch ? "" : `<small>${["E", "R", "F", "G"][i]}</small>`);
+    b.onclick = () => fn(); box.appendChild(b);
+  });
+}
+function jump() {
+  if (building || !avatar) return;
+  if (seated) { seated = null; return; }
+  if (avatar.kind !== "baby") { swimH = Math.min(swimH + 1.6, (where === "in" ? dpr.ceilAt(player.x, player.z) : 8) - 2.2); return; }
+  if (player.y <= ground(player.x, player.z, player.y) + 0.01) vy = 8.2;
+}
 
 // ---------- the loop ----------
-const clock = new THREE.Clock(); let t = 0, saveT = 0;
+const clock = new THREE.Clock(); let t = 0, saveT = 0, drownT = 0, foreignShown = false;
 const fwd = new THREE.Vector3(), right = new THREE.Vector3(), camT = new THREE.Vector3(), tmp = new THREE.Vector3();
-function tryMove(dx, dz) {
-  const r = 0.35, top = player.y + (avatar.kind === "cell" ? 0.6 : 1.3);
-  const blockedXZ = (x, z) => Math.hypot(x, z) > ISLAND_R - 0.8 || world.solids.some((b) => player.y < b.h && inBox(b, x, z, r))
-    || (avatar.kind === "baby" && [[r, 0], [-r, 0], [0, r], [0, -r]].some(([ox, oz]) => builder.blockedAt(x + ox, z + oz, player.y + 0.05, top)));
-  if (!blockedXZ(player.x + dx, player.z)) player.x += dx;
-  if (!blockedXZ(player.x, player.z + dz)) player.z += dz;
+const C_SKY = new THREE.Color(SKY), C_DEEP = new THREE.Color("#5fa9cf");
+let nearSolids = [];
+function blockedXZ(x, z) {
+  const r = 0.35, y = player.y;
+  if (where === "in") return !dpr.walkable(x, z) || dpr.solids.some((b) => y < b.h && inBox(b, x, z, r));
+  if (island.solids.some((b) => y < b.h && inBox(b, x, z, r)) || nearSolids.some((b) => y < b.h && inBox(b, x, z, r))) return true;
+  if (heightAt(x, z) > y + 0.7) return true;   // too steep
+  const top = y + 1.3;
+  return [[r, 0], [-r, 0], [0, r], [0, -r]].some(([ox, oz]) => builder.blockedAt(x + ox, z + oz, y + 0.05, top));
+}
+function tryMove(dx, dz) { if (!blockedXZ(player.x + dx, player.z)) player.x += dx; if (!blockedXZ(player.x, player.z + dz)) player.z += dz; }
+function camOK(x, y, z) {
+  if (where === "in") return dpr.walkable(x, z, 0.1) && y < dpr.ceilAt(x, z) - 0.4 && y > dpr.groundAt(x, z) + 0.25 && !dpr.solids.some((b) => y < b.h + 0.2 && inBox(b, x, z, 0.2))
+    && dpr.president.g.position.distanceTo(tmp.set(x, y, z)) > 2.2;
+  return y > heightAt(x, z) + 0.35 && !island.solids.some((b) => y < b.h + 0.3 && inBox(b, x, z, 0.35)) && !builder.has(Math.floor(x), Math.floor(y), Math.floor(z));
 }
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05); t += dt;
-  // movement relative to the camera
+  const creating = $("creator").style.display === "flex", panel = $("grow").style.display === "flex";
+  const run = keys.has("ShiftLeft") || keys.has("ShiftRight");
   let mx = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + joy.x;
   let mz = (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) - (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) + joy.y;
   const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
-  const creating = $("creator").style.display === "flex";
-  moving = ml > 0.08 && !creating && bornT < 0 && workT < 0;
+  const want = ml > 0.08 && !creating && !panel && bornT < 0 && workT < 0;
+  if (want && seated) seated = null;
+  if (want && napT >= 0) napT = -1;
+  moving = want && !seated;
+  if (where === "out") { nearSolids = terrain.solidsNear(player.x, player.z); terrain.update(player.x, player.z, 2); }
+  const underwater = where === "out" && player.y < SEA;
   if (moving) {
     fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(-fwd.z, 0, fwd.x);
-    const v = (avatar.kind === "cell" ? 5.2 : 4.4) * dt;
+    const base = avatar.kind === "cell" ? 5.2 : avatar.kind === "fetus" ? 3.6 : 4.4;
+    const v = base * (run ? 1.7 : 1) * (underwater ? 0.5 : 1) * dt;
     const dx = (right.x * mx - fwd.x * mz) * v, dz = (right.z * mx - fwd.z * mz) * v;
     tryMove(dx, dz); facing = Math.atan2(dx, dz);
   }
-  // vertical: cells hover above the ground, babies fall and jump
-  const g = groundY();
-  if (avatar.kind === "cell") player.y = lerp(player.y, g + 1.1 + Math.sin(t * 2) * 0.12, 0.15);
+  if (seated) { player.x = seated.cx; player.z = seated.cz; facing = seated.facing; }
+
+  // vertical: cells and fetuses float (UP swims higher, then they sink back), babies fall and jump
+  const g = ground(player.x, player.z, player.y);
+  if (avatar.kind !== "baby") { swimH = Math.max(avatar.kind === "fetus" ? 1.4 : 1.1, swimH - dt * 0.5); player.y = lerp(player.y, g + swimH + Math.sin(t * 2) * 0.12, 0.12); }
   else { vy -= 25 * dt; player.y += vy * dt; if (player.y <= g) { player.y = g; vy = 0; } if (g > player.y - 0.01 && g - player.y < 0.65) player.y = g; }
 
   // avatar pose
   avatar.g.position.copy(player);
   if (avatar.kind === "cell") { avatar.g.rotation.set(0, facing - Math.PI / 2, 0); swim(avatar, t, moving ? 1.6 : 0.6); talk(avatar, 0, blinkAt(t, 3)); }
-  else { avatar.g.rotation.set(0, facing, 0); walk(avatar, t, moving && player.y <= g + 0.01, 1); }
+  else if (avatar.kind === "fetus") { avatar.g.rotation.set(0, facing - Math.PI / 2, 0); avatar.f.rotation.z = -0.35 + Math.sin(t * 1.5) * 0.08; }
+  else { avatar.g.rotation.set(0, facing, 0); walk(avatar, t, moving && player.y <= g + 0.01, 1); if (seated) { sit(avatar); avatar.g.position.y += 0.1; } }
+  if (napT >= 0) { napT += dt; if (napT > 3) { napT = -1; toast(t9n("napWake"), 1.8); SFX.pop(); } }
 
-  // what is the player next to?
-  const dDoor = Math.hypot(player.x - world.doorWorld.x, player.z - world.doorWorld.z);
-  const dDesk = Math.hypot(player.x - world.officeDesk.x, player.z - world.officeDesk.z);
-  const dPres = Math.hypot(player.x, player.z + 1.2);
-  near = dDesk < 3 ? "office" : dPres < 5 ? "president" : null;
-  const act = $("act");
-  act.style.display = near && !building && !creating ? "" : "none";
-  act.textContent = near === "office" ? (getLang() === "id" ? "KERJA 💼" : "WORK 💼") : near === "president" ? (getLang() === "id" ? "NGOBROL 💬" : "TALK 💬") : "";
+  // doors between inside and outside
+  if (where === "in" && bornT < 0 && Math.hypot(player.x - EXIT.x, player.z - EXIT.z) < 1.6) {
+    if (S.born) { SFX.door(); player.z -= 1; flash("#eaf7ff", () => placeAt("out", island.doorWorld.x, island.doorWorld.z + 2.4, 0, 0)); }
+    else { toast(t9n("cellNoExit"), 3); player.z = 49.6; SFX.no(); }
+  }
+  if (where === "out" && Math.hypot(player.x - island.doorWorld.x, player.z - island.doorWorld.z) < 1.2) {
+    SFX.door(); toast(t9n("enter"), 1.4); player.z = island.doorWorld.z + 2; flash("#ffd3dc", () => placeAt("in", SPAWN.lobby[0], SPAWN.lobby[1], SPAWN.lobby[2]));
+  }
+  // metal detector
+  const inGate = where === "in" && Math.abs(player.x) < 1.1 && Math.abs(player.z - 46.5) < 0.4;
+  if (inGate && !wasInGate) { SFX.beep(); gateT = 1; toast(t9n("gateBeep", { n: S.free ? "∞" : S.coins }), 2); }
+  wasInGate = inGate; gateT -= dt;
 
-  // being born: swim into the door
-  if (S.level === 0 && dDoor < 1.8 && bornT < 0 && S.created) bornT = 0;
-  doorOpen = lerp(doorOpen, dDoor < 4 || bornT >= 0 ? 1 : 0, 0.08);
+  // being born: the egg flashes, the cell becomes a baby in front of it
   if (bornT >= 0) {
     bornT += dt;
-    if (bornT > 0.5 && S.level === 0) { $("flash").style.opacity = 1; }
-    if (bornT > 0.9 && S.level === 0) {
-      S.level = 1; dirty = true; makeAvatar();
-      player.set(world.doorWorld.x, 0, world.doorWorld.z + 2.2); facing = 0; yaw = Math.PI;
-      $("flash").style.opacity = 0; toast(t9n("born"), 3); hud();
-    }
+    if (bornT > 0.5 && !S.born) { $("flash").style.background = "#fff"; $("flash").style.opacity = 1; }
+    if (bornT > 0.9 && !S.born) { S.born = true; dirty = true; makeAvatar(); player.set(EGG.x - 5.4, 0, EGG.z); facing = -Math.PI / 2; yaw = -Math.PI / 2; $("flash").style.opacity = 0; toast(t9n("born"), 3.4); hud(); }
     if (bornT > 1.4) bornT = -1;
   }
+  // drowning: a baby whose head goes under the sea
+  if (where === "out" && avatar.kind === "baby" && player.y + 1.2 < SEA) {
+    drownT += dt; $("water").style.opacity = Math.min(1, drownT * 1.2);
+    if (drownT > 0.6 && drownT - dt <= 0.6) { SFX.glug(); toast(t9n("drown"), 2.4); }
+    if (drownT > 2.4) { drownT = 0; $("water").style.opacity = 0; placeAt("out", island.doorWorld.x, island.doorWorld.z + 3, 0, 0); toast(t9n("respawn"), 2.4); }
+  } else if (drownT > 0) { drownT = Math.max(0, drownT - dt * 2); $("water").style.opacity = Math.min(1, drownT * 1.2); }
+  if (where === "out" && !foreignShown && Math.hypot(player.x, player.z) > HOME_R + 80 && heightAt(player.x, player.z) > SEA + 0.4) { foreignShown = true; toast(t9n("foreign"), 3.4); }
   // working
   if (workT >= 0) {
     workT += dt; $("progI").style.width = `${Math.min(100, workT / 4 * 100)}%`;
-    if (workT >= 4) { workT = -1; $("prog").style.display = "none"; S.coins += 10; dirty = true; toast(t9n("paid", { n: 10 }), 1.8); hud(); }
+    if (workT >= 4) { workT = -1; $("prog").style.display = "none"; S.coins += 10; dirty = true; SFX.coin(); toast(t9n("paid", { n: 10 }), 1.8); hud(); }
   }
-  // president speech bubble follows his head
-  if (talkT > 0) {
-    talkT -= dt; tmp.copy(world.president.g.position).add(new THREE.Vector3(0, 1.4, 0)).project(camera);
-    const b = $("bubble"); b.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; b.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`;
-    if (talkT <= 0) b.style.display = "none";
-  }
-  world.update(t, { player, presidentTalking: talkT > 0, doorOpen });
+  // what can you use here?
+  renderActs(creating || panel || building ? [] : findActs());
 
-  // camera: third person orbit, kept above the ground
-  const d = creating ? 4.2 : avatar.kind === "cell" ? dist * 0.85 : dist;
-  camT.set(player.x, player.y + (avatar.kind === "cell" ? 0.7 : 1.2), player.z);
-  const cy = creating ? facing : yaw;   // the creator shows you from the front
-  const cp = creating ? 0.25 : pitch;
-  // pull the camera in when a building, a block or the president is in the way
-  const camOK = (x, y, z) => !world.solids.some((b) => y < b.h + 0.3 && inBox(b, x, z, 0.35)) && !builder.has(Math.floor(x), Math.floor(y), Math.floor(z))
-    && Math.hypot(x - world.president.g.position.x, y - world.president.g.position.y, z - world.president.g.position.z) > 1.9;
+  // the places move
+  if (where === "in") dpr.update(t, dt, { player, cam: camera.position, presidentTalking: presTalkT > 0, gateBeep: gateT > 0 });
+  else { island.update(t, { player, doorOpen: Math.hypot(player.x - island.doorWorld.x, player.z - island.doorWorld.z) < 6 ? 1 : 0 }); sun.position.set(player.x + 8, 20, player.z + 10); sun.target.position.copy(player); }
+  presTalkT -= dt;
+
+  // camera: third person, 360° around the player, pulled in when a wall, a block or the ceiling is in the way
+  const d = creating ? 4.2 : avatar.kind === "baby" ? dist : dist * 0.85;
+  camT.set(player.x, player.y + (avatar.kind === "baby" ? (seated ? 1.0 : 1.2) : 0.7), player.z);
+  const cy = creating ? facing : yaw, cp = creating ? 0.25 : pitch;
   let k = d;
-  for (; k > 1.4; k -= 0.25) if (camOK(camT.x + Math.sin(cy) * Math.cos(cp) * k, camT.y + Math.sin(cp) * k, camT.z + Math.cos(cy) * Math.cos(cp) * k)) break;
-  camera.position.set(camT.x + Math.sin(cy) * Math.cos(cp) * k, Math.max(0.6, camT.y + Math.sin(cp) * k), camT.z + Math.cos(cy) * Math.cos(cp) * k);
+  for (; k > 1.2; k -= 0.25) if (camOK(camT.x + Math.sin(cy) * Math.cos(cp) * k, camT.y + Math.sin(cp) * k, camT.z + Math.cos(cy) * Math.cos(cp) * k)) break;
+  camera.position.set(camT.x + Math.sin(cy) * Math.cos(cp) * k, camT.y + Math.sin(cp) * k, camT.z + Math.cos(cy) * Math.cos(cp) * k);
   camera.lookAt(camT);
-  // on a phone the creator sheet covers the lower part of the screen: show the character in the upper part
-  const lift = creating && innerWidth <= 700;
+  const lift = creating && innerWidth <= 700;   // on a phone the creator sheet covers the bottom: show the character higher up
   if (lift !== camera.userData.lift) { camera.userData.lift = lift; if (lift) camera.setViewOffset(innerWidth, innerHeight, 0, innerHeight * 0.3, innerWidth, innerHeight); else camera.clearViewOffset(); }
-  sun.position.set(player.x + 8, 18, player.z + 10); sun.target.position.copy(player);
-  const pinkish = S.level === 0 && S.created;   // cells see a faint pink world, like the swim zone
-  scene.background.lerp(new THREE.Color(pinkish ? PINK : SKY), 0.02); scene.fog.color.copy(scene.background);
+  if (where === "out") { const uw = camera.position.y < SEA; out.background.copy(uw ? C_DEEP : C_SKY); out.fog.color.copy(out.background); out.fog.far = uw ? 22 : touch ? 85 : 120; }
 
+  // bubbles, toasts, autosave
+  if (bubbleT > 0) {
+    bubbleT -= dt; bubbleAt().project(camera);
+    const b = $("bubble"); b.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; b.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`;
+    if (bubbleT <= 0) b.style.display = "none";
+  }
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $("toast").classList.remove("on"); }
-  saveT += dt; if (saveT > 3 && dirty && S.created) { saveT = 0; save(); }
-  renderer.render(scene, camera);
+  if (stampT > 0) { stampT -= dt; if (stampT <= 0) $("stamp").classList.remove("on"); }
+  saveT += dt; if (saveT > 3 && S.created) { saveT = 0; if (dirty || moving) save(); }
+  renderer.render(scene(), camera);
   requestAnimationFrame(frame);
 }
 
 // ---------- start ----------
-makeAvatar(); labels();
+makeAvatar(); placeAt(where, player.x, player.z, where === "in" ? SPAWN.womb[2] : Math.PI); labels();
 if (!S.created) openCreator();
 addEventListener("pagehide", () => S.created && save());
-document.fonts.ready.then(() => { world.paintTexts(); paintData(); });
+document.fonts.ready.then(() => labels());
 requestAnimationFrame(frame);
-if (location.search.includes("debug")) window.__cz = { player, S, builder, world, toggleBuild, doAction, get near() { return near; } };   // for tests
+if (DEBUG) window.__cz = { player, S, builder, dpr, island, terrain, heightAt, placeAt, refreshLevel, toggleBuild, get LV() { return LV; }, get where() { return where; },
+  get acts() { return curActs.map((a) => a[0]); }, act: (i = 0) => curActs[i] && curActs[i][1](), get DATA() { return DATA; }, get avatar() { return avatar; } };

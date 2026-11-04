@@ -1,7 +1,7 @@
 // Building: 1-unit blocks on a grid, in the video's pastel palette. Blocks live in a Map keyed "x,y,z" and are saved as [x,y,z,type].
 import * as THREE from "three";
 import { mat, glossy } from "./kit.js";
-import { ISLAND_R } from "./world.js";
+import { heightAt, SEA } from "./terrain.js";
 
 export const BLOCKS = [
   { id: "grass", c: "#a8d88a", top: "#8fcf6e" }, { id: "dirt", c: "#b88a5c" }, { id: "wood", c: "#c9925a" }, { id: "brick", c: "#d9694a" },
@@ -24,10 +24,10 @@ export function createBuilder(scene, camera, noBuild) {
   }
   function remove(x, y, z) { const k = key(x, y, z), m = blocks.get(k); if (!m) return false; group.remove(m); blocks.delete(k); return true; }
   const has = (x, y, z) => blocks.has(key(x, y, z));
-  // height of the highest solid surface under (px, pz) not above `fromY + step`
+  // height of the highest block top under (px, pz) not above `fromY + step` (-99 when there is none)
   function groundAt(px, pz, fromY, step = 0.6) {
-    const x = Math.floor(px), z = Math.floor(pz); let top = 0;
-    for (let y = 0; y < 40; y++) if (has(x, y, z) && y + 1 <= fromY + step) top = y + 1;
+    const x = Math.floor(px), z = Math.floor(pz); let top = -99;
+    for (let y = -4; y < 48; y++) if (has(x, y, z) && y + 1 <= fromY + step) top = y + 1;
     return top;
   }
   const blockedAt = (px, pz, y0, y1) => { const x = Math.floor(px), z = Math.floor(pz); for (let y = Math.floor(y0); y < y1; y++) if (has(x, y, z)) return true; return false; };
@@ -36,23 +36,23 @@ export function createBuilder(scene, camera, noBuild) {
   const ghost = new THREE.Mesh(GEO, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.35, depthWrite: false }));
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(GEO), new THREE.LineBasicMaterial({ color: "#3a2414" }));
   ghost.add(edges); ghost.visible = false; scene.add(ghost);
-  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitP = new THREE.Vector3();
+  const ray = new THREE.Raycaster();
   let target = null;
 
-  function aim(ndc, removeMode, from) {
+  function aim(ndc, removeMode, from, ground) {   // ground: the terrain meshes nearby
     ray.setFromCamera(ndc, camera); ray.far = 40;
     const hit = ray.intersectObjects(group.children, false)[0];
+    const gHit = !removeMode && ray.intersectObjects(ground, false)[0];
     let cell = null;
     if (hit) {
       const { x, y, z } = hit.object.userData;
       if (removeMode) cell = { x, y, z, existing: true };
       else { const n = hit.face.normal; cell = { x: x + Math.round(n.x), y: y + Math.round(n.y), z: z + Math.round(n.z) }; }
-    } else if (!removeMode && ray.ray.intersectPlane(plane, hitP)) {
-      cell = { x: Math.floor(hitP.x), y: 0, z: Math.floor(hitP.z) };
     }
+    if (!removeMode && gHit && (!hit || gHit.distance < hit.distance)) cell = { x: Math.floor(gHit.point.x), y: Math.floor(gHit.point.y + 0.05), z: Math.floor(gHit.point.z) };
     if (cell && !cell.existing) {
       const far = Math.hypot(cell.x + 0.5 - from.x, cell.z + 0.5 - from.z) > 12;
-      const out = Math.hypot(cell.x + 0.5, cell.z + 0.5) > ISLAND_R - 1 || cell.y < 0 || cell.y > 30;
+      const out = heightAt(cell.x + 0.5, cell.z + 0.5) < SEA + 0.1 || cell.y > 40;
       if (far || out || noBuild(cell.x + 0.5, cell.z + 0.5)) cell = null;
     }
     target = cell;

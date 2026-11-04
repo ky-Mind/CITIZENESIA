@@ -1,26 +1,21 @@
-// The island of CITIZENESIA: the plaza, houses and trees from the video, the president, the population and decree boards,
-// The People's House (where cells are born) and the job office (19,000,000 jobs open). Everything solid is listed in `solids`.
+// The home island of CITIZENESIA, as in the video: the plaza, the houses, the population and decree boards,
+// The People's House (Gedung DPR, now big enough to walk into) and the job office (19,000,000 jobs open).
+// No cells live out here: they stay inside The People's House until they are born. Outside walk the babies and citizens.
 import * as THREE from "three";
-import { M, mat, glossy, signTex, liveSign, hash, lerp } from "./kit.js";
-import { sperm, swim, talk, blinkAt } from "./actors.js";
+import { M, mat, signTex, liveSign, hash, canTex } from "./kit.js";
+import { baby, walk } from "./actors.js";
 
-export const ISLAND_R = 34;
-export const HOUSE = { x: -13, z: -9 };      // The People's House
-export const OFFICE = { x: 13, z: -9 };      // the job office
+export const HOUSE = { x: 0, z: -22, s: 3 };    // The People's House, front door facing +z
+export const OFFICE = { x: 20, z: -10 };       // the job office, open front facing +z
 
-export function buildWorld(scene, t9n) {
+export function buildIsland(scene, t9n) {
   const solids = [];   // axis-aligned boxes {x0,x1,z0,z1,h} the player cannot walk through
   const box = (x, z, w, d, h = 9) => solids.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h });
 
-  // ground: sea, island, plaza
-  const sea = M(new THREE.CircleGeometry(160, 64), mat("#9fd3ea", { roughness: 0.35 }), 0, -0.45, 0, scene); sea.rotation.x = -Math.PI / 2; sea.castShadow = false;
-  M(new THREE.CylinderGeometry(ISLAND_R + 1.2, ISLAND_R + 2.5, 0.8, 72), mat("#efe2c4"), 0, -0.6, 0, scene);   // sand rim
-  M(new THREE.CylinderGeometry(ISLAND_R, ISLAND_R, 0.4, 72), mat("#a8d88a"), 0, -0.2, 0, scene);
+  // plaza and paths (the island ground itself is the terrain at y = 0)
   M(new THREE.CylinderGeometry(5.5, 5.5, 0.06, 40), mat("#efe2c4"), 0, 0.03, 0, scene);
-  [[HOUSE.x, HOUSE.z], [OFFICE.x, OFFICE.z]].forEach(([x, z]) => {   // paths from the plaza
-    const len = Math.hypot(x, z) - 4, p = M(new THREE.BoxGeometry(1.6, 0.04, len), mat("#efe2c4"), x / 2, 0.02, z / 2, scene);
-    p.rotation.y = Math.atan2(x, z);
-  });
+  const path = (x0, z0, x1, z1, w = 1.6) => { const len = Math.hypot(x1 - x0, z1 - z0), p = M(new THREE.BoxGeometry(w, 0.04, len), mat("#efe2c4"), (x0 + x1) / 2, 0.02, (z0 + z1) / 2, scene); p.rotation.y = Math.atan2(x1 - x0, z1 - z0); };
+  path(0, -5, 0, -16.5, 3); path(4, -3.5, OFFICE.x, OFFICE.z + 3.6);
 
   // the little houses with dark, empty windows (they light up as the population grows)
   const windows = [];
@@ -33,10 +28,10 @@ export function buildWorld(scene, t9n) {
     box(x, z, 2.3, 2.3, 3);
   }
   [[-7.5, 5, "#f6d2a8", "#d9694a", 0.5 + Math.PI], [7.4, 5.2, "#cfe3f2", "#4a7fc0", -0.5 + Math.PI], [-10.5, -0.5, "#f3e7b8", "#6aa060", 0.9 + Math.PI / 2],
-   [10.4, -0.2, "#f2c9d6", "#b05a7a", -0.9 - Math.PI / 2], [0, 15, "#e9e2f4", "#7a5ab0", Math.PI]].forEach((a) => house(...a));
-  for (let i = 0; i < 22; i++) {   // trees around the edge
-    const a = i / 22 * Math.PI * 2 + 0.3, r = 22 + hash(i) * 9; const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (Math.hypot(x - HOUSE.x, z - HOUSE.z) < 7 || Math.hypot(x - OFFICE.x, z - OFFICE.z) < 8) continue;
+   [10.4, -0.2, "#f2c9d6", "#b05a7a", -0.9 - Math.PI / 2], [0, 15, "#e9e2f4", "#7a5ab0", Math.PI], [-16, 8, "#f6d2a8", "#6aa060", Math.PI / 2], [15, 9, "#cfe3f2", "#d9694a", -Math.PI / 2]].forEach((a) => house(...a));
+  for (let i = 0; i < 34; i++) {   // trees around the edge
+    const a = i / 34 * Math.PI * 2 + 0.3, r = 24 + hash(i) * 12; const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (Math.abs(x - HOUSE.x) < 11 && Math.abs(z - HOUSE.z) < 9 || Math.hypot(x - OFFICE.x, z - OFFICE.z) < 8) continue;
     const tr = new THREE.Group(); tr.position.set(x, 0, z); scene.add(tr);
     M(new THREE.CylinderGeometry(0.12, 0.16, 0.9, 8), mat("#8a5a3a"), 0, 0.45, 0, tr);
     M(new THREE.SphereGeometry(0.7 + hash(i + 7) * 0.3, 14, 10), mat(i % 2 ? "#6fb35a" : "#86c46a"), 0, 1.35, 0, tr);
@@ -72,22 +67,29 @@ export function buildWorld(scene, t9n) {
   board(-3.6, -3.4, 0.3, pop.tex, 2.9, 1.82);
   board(3.6, -3.4, -0.3, decree.tex, 2.9, 2.18);
 
-  // the president floats over the plaza and talks
-  const president = sperm({ president: true, ph: 0.4 }); scene.add(president.g); president.g.scale.setScalar(1.15);
-
-  // The People's House: walk (swim) through the door to be born
-  const ph = new THREE.Group(); ph.position.set(HOUSE.x, 0, HOUSE.z); ph.scale.setScalar(1.35); scene.add(ph);   // faces +z, towards the plaza side
+  // The People's House (Gedung DPR): the video's building, three times bigger, with a door you can walk through
+  const S3 = HOUSE.s, ph = new THREE.Group(); ph.position.set(HOUSE.x, 0, HOUSE.z); ph.scale.setScalar(S3); scene.add(ph);
   M(new THREE.BoxGeometry(4.6, 1.8, 2.6), mat("#f6f2ea"), 0, 0.9, 0, ph);
   for (let i = 0; i < 6; i++) if (i !== 2 && i !== 3) M(new THREE.CylinderGeometry(0.11, 0.11, 1.8, 10), mat("#ffffff"), -2.0 + i * 0.8, 0.9, 1.35, ph);
   M(new THREE.BoxGeometry(4.9, 0.18, 2.9), mat("#e2dccf"), 0, 1.86, 0, ph);
+  M(new THREE.BoxGeometry(5.1, 0.1, 3.2), mat("#e2dccf"), 0, 0.05, 0.1, ph);
   [-1, 1].forEach((k) => { const d = M(new THREE.SphereGeometry(1.6, 32, 16, 0, Math.PI, 0, Math.PI / 2), mat("#3f9a6a", { roughness: 0.5 }), k * 0.42, 1.95, 0, ph); d.rotation.y = k > 0 ? -Math.PI / 2 : Math.PI / 2; d.rotation.z = k * 0.12; d.scale.set(1, 0.8, 1.35); });
-  M(new THREE.BoxGeometry(0.9, 1.25, 0.04), mat("#2a2018"), 0, 0.63, 1.31, ph);
+  M(new THREE.BoxGeometry(0.9, 1.25, 0.04), mat("#ffb3c3", { emissive: "#ff8fa3", emissiveIntensity: 0.5 }), 0, 0.63, 1.31, ph);   // pink glow of the womb inside
   const doorPivot = new THREE.Group(); doorPivot.position.set(-0.45, 0, 1.33); ph.add(doorPivot);
   M(new THREE.BoxGeometry(0.9, 1.25, 0.08), mat("#8a5a3a"), 0.45, 0.63, 0, doorPivot);
   const phSign = M(new THREE.PlaneGeometry(2.6, 0.48), mat("#fff"), 0, 1.55, 1.32, ph);
-  ph.updateMatrixWorld(true);
-  const doorWorld = new THREE.Vector3(0, 0, 1.9).applyMatrix4(ph.matrixWorld);
-  box(HOUSE.x, HOUSE.z, 6.6, 6.6, 4);
+  const doorWorld = new THREE.Vector3(HOUSE.x, 0, HOUSE.z + 1.33 * S3 + 0.5);
+  box(HOUSE.x, HOUSE.z, 4.9 * S3, 2.6 * S3 + 0.2, 9);
+  [-2.0, -1.2, 1.2, 2.0].forEach((cx) => box(HOUSE.x + cx * S3, HOUSE.z + 1.35 * S3, 0.5, 0.5, 6));
+
+  // the flag pole: the flag and the app icon will be designed by the viewers in the comments
+  const flagTex = canTex(256, 170, (c, w, h) => { c.fillStyle = "#fffdf4"; c.fillRect(0, 0, w, h); c.strokeStyle = "#e0384b"; c.lineWidth = 10; c.setLineDash([18, 12]); c.strokeRect(8, 8, w - 16, h - 16); c.fillStyle = "#e0384b"; c.font = "900 110px 'Archivo Black'"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("?", w / 2, h / 2 + 6); });
+  const FLAG = { x: -7, z: -13 };
+  M(new THREE.CylinderGeometry(0.09, 0.12, 8, 10), mat("#d9d4cc", { metalness: 0.4, roughness: 0.4 }), FLAG.x, 4, FLAG.z, scene);
+  M(new THREE.SphereGeometry(0.18, 12, 10), mat("#ffd84a", { metalness: 0.5, roughness: 0.3 }), FLAG.x, 8.1, FLAG.z, scene);
+  const flag = M(new THREE.PlaneGeometry(2.4, 1.6, 12, 1), mat("#fff", { map: flagTex, side: THREE.DoubleSide }), FLAG.x + 1.25, 7, FLAG.z, scene);
+  const flagBase = flag.geometry.attributes.position.array.slice();
+  box(FLAG.x, FLAG.z, 0.5, 0.5, 9);
 
   // the job office: open front, fifteen empty desks, a giant JOBS OPEN board
   const of = new THREE.Group(); of.position.set(OFFICE.x, 0, OFFICE.z); scene.add(of);   // open front faces +z
@@ -109,12 +111,15 @@ export function buildWorld(scene, t9n) {
   box(OFFICE.x, OFFICE.z - 3.4, 9, 0.6, 5); box(OFFICE.x - 4.4, OFFICE.z, 0.6, 7, 5); box(OFFICE.x + 4.4, OFFICE.z, 0.6, 7, 5);
   const officeDesk = new THREE.Vector3(OFFICE.x, 0, OFFICE.z + 1.5);
 
-  // citizens swimming over the plaza (sample names until the census fills them in)
-  const swimmers = [];
-  function setCitizens(names) {
-    swimmers.forEach((s) => scene.remove(s.s.g)); swimmers.length = 0;
+  // born citizens (level BABY and up in the census) stroll around the plaza
+  const walkers = [];
+  function setCitizens(list) {
+    walkers.forEach((w) => scene.remove(w.b.g)); walkers.length = 0;
     const LOOKS = [{ cap: "#2f6fd1" }, { band: "#2fa04a" }, { cap: "#e83a7a" }, { band: "#e8742a" }, { glasses: true }, { helmet: true }];
-    names.slice(0, 8).forEach((n, i) => { const s = sperm({ name: n, ph: i * 1.3, look: LOOKS[i % LOOKS.length] }); s.g.scale.setScalar(0.55); scene.add(s.g); swimmers.push({ s, i }); });
+    list.filter((c) => c.level >= 3).slice(0, 10).forEach((c, i) => {
+      const b = baby("@" + c.name, c.look || LOOKS[i % LOOKS.length]); b.g.scale.setScalar(0.75); scene.add(b.g);
+      walkers.push({ b, c, i, x: 0, z: 0, ry: 0 });
+    });
   }
 
   // texts that change with the language
@@ -132,22 +137,19 @@ export function buildWorld(scene, t9n) {
                          : { title: t9n("decreeTitle", { n: "000" }), text: t9n("noDecree"), by: t9n("noDecreeBy") });
   }
 
-  const tmp = new THREE.Vector3();
   function update(t, ctx) {
-    president.g.position.set(0, 2.9 + Math.sin(t * 1.6) * 0.12, -1.2);
-    tmp.set(ctx.player.x, 2.9, ctx.player.z);   // the president turns to whoever is near
-    const near = Math.hypot(ctx.player.x, ctx.player.z + 1.2) < 9;
-    president.g.rotation.y = near ? -Math.atan2(tmp.z + 1.2, tmp.x) : -0.35 + Math.sin(t * 0.3) * 0.3;
-    swim(president, t, 0.5, 0.3); talk(president, ctx.presidentTalking ? (Math.sin(t * 18) > 0 ? 5 : 2) : 0, blinkAt(t, 1));
-    swimmers.forEach(({ s, i }) => {
-      const a = t * (0.18 + i * 0.02) + i * 0.8, r = 7 + (i % 3) * 1.6;
-      s.g.position.set(Math.cos(a) * r, 6.5 + (i % 4) * 0.7 + Math.sin(t + i) * 0.3, Math.sin(a) * r);
-      s.g.rotation.set(0, -a - Math.PI / 2, 0); swim(s, t, 1.1); talk(s, 0, blinkAt(t, i + 4));
+    walkers.forEach((w) => {   // slow loops around the plaza, pausing now and then
+      const pause = Math.sin(t * 0.4 + w.i * 1.7) > 0.6, a = w.i * 0.63 + (t * 0.09 + Math.sin(t * 0.2 + w.i)) * (w.i % 2 ? 1 : -1), r = 7.5 + (w.i % 4) * 1.6;
+      if (!pause) { const nx = Math.cos(a) * r, nz = Math.sin(a) * r * 0.8 + 2; w.ry = Math.atan2(nx - w.x, nz - w.z); w.x = nx; w.z = nz; }
+      w.b.g.position.set(w.x, 0, w.z); w.b.g.rotation.y = w.ry; walk(w.b, t, !pause, w.i);
     });
+    const fp = flag.geometry.attributes.position;   // the flag waves
+    for (let i = 0; i < fp.count; i++) { const x = flagBase[i * 3]; fp.setZ(i, Math.sin(x * 2.2 - t * 4) * 0.12 * (x + 1.2)); }
+    fp.needsUpdate = true;
     doorPivot.rotation.y = -1.9 * ctx.doorOpen;
     const lit = Math.min(windows.length, Math.floor((data.population || 0) / 100));
     windows.forEach((w, i) => { const on = i < lit; w.material.color.set(on ? "#ffd36a" : "#3a4a5a"); w.material.emissive.set(on ? "#a8741a" : "#000000"); });
   }
 
-  return { solids, update, setData, setCitizens, paintTexts, doorWorld, officeDesk, president };
+  return { solids, update, setData, setCitizens, paintTexts, doorWorld, officeDesk, walkers, FLAG };
 }

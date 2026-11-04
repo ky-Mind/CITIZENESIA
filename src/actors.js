@@ -110,3 +110,24 @@ export function walk(b, t, moving, seed = 0) {
   b.arms[0].rotation.z = -0.9 - (moving ? 0 : 0.1 * Math.sin(t * 2 + seed)); b.arms[1].rotation.z = 0.9;
   b.eyes.forEach((e) => (e.scale.y = 1.3 * (1 - 0.9 * blinkAt(t, seed + 9))));
 }
+
+export function sit(b) {   // a baby sitting on a chair: legs forward, a little lower
+  b.legs.forEach((l) => (l.rotation.x = -1.45)); b.body.position.y = -0.18; b.body.rotation.z = 0;
+}
+
+// ---------- the fetus (level 2), curled up asleep, as in the video's egg ----------
+export function fetus(name, bubble = true) {
+  const g = new THREE.Group(), f = new THREE.Group(); f.rotation.z = -0.35; g.add(f);
+  const skin = glossy("#ffc9b0", { roughness: 0.45, clearcoat: 0.3 });
+  M(new THREE.SphereGeometry(1.05, 28, 20), skin, 0.15, 0.8, 0.2, f);
+  M(new THREE.SphereGeometry(0.95, 24, 18), skin, -0.15, -0.55, 0, f).scale.set(0.9, 1.1, 0.85);
+  [-1, 1].forEach((k) => { const leg = M(new THREE.CapsuleGeometry(0.28, 0.6, 6, 12), skin, k * 0.35 + 0.2, -0.9, 0.55, f); leg.rotation.set(1.3, 0, k * 0.3); });
+  [-1, 1].forEach((k) => { const arm = M(new THREE.CapsuleGeometry(0.17, 0.5, 6, 10), skin, k * 0.4 + 0.25, -0.05, 0.75, f); arm.rotation.set(0.9, 0, -k * 0.6); });
+  [-0.3, 0.25].forEach((x) => { const e = M(new THREE.TorusGeometry(0.11, 0.025, 6, 14, Math.PI), ink, x + 0.45, 0.85, 1.12, f); e.rotation.z = Math.PI; });
+  M(new THREE.TorusGeometry(0.07, 0.02, 6, 12, Math.PI), ink, 0.48, 0.55, 1.15, f).rotation.z = Math.PI;
+  [-0.25, 0.85].forEach((x) => M(new THREE.SphereGeometry(0.1, 10, 8), mat("#ff8fa3", { transparent: true, opacity: 0.6 }), x + 0.1, 0.62, 1.05, f).scale.set(1, 0.6, 0.3));
+  M(new THREE.TorusGeometry(0.2, 0.06, 8, 18), mat("#fffdf4"), 0.62, -0.05, 1.0, f).rotation.x = 1.2;
+  if (name) nameTag(f, name, 0.3, -1.95, 1.0, 0.85).rotation.z = 0.35;
+  if (bubble) M(new THREE.SphereGeometry(2.1, 28, 20), new THREE.MeshPhysicalMaterial({ color: "#ffe9b8", roughness: 0.15, transparent: true, opacity: 0.4, clearcoat: 1, depthWrite: false }), 0, 0, 0, g).castShadow = false;
+  return { g, f };
+}
