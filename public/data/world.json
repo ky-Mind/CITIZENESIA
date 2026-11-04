@@ -5,9 +5,9 @@
   "links": { "instagram": null, "tiktok": null, "youtube": null },
   "inbox": null,
   "citizens": [
-    { "name": "first_citizen", "no": 1, "level": 4, "likes": 4812, "role": "Minister of Snacks", "life": "wrote the first law", "v": [] },
-    { "name": "your_bestie", "no": 2, "level": 3, "likes": 310, "look": { "band": "#2f6fd1", "helmet": true }, "life": "wants to be an astronaut (unpaid)", "v": [] },
-    { "name": "not_a_bot", "no": 3, "level": 2, "likes": 95, "v": [] },
+    { "name": "first_citizen", "no": 1, "level": 6, "likes": 4812, "role": "Minister of Snacks", "life": "wrote the first law", "v": [] },
+    { "name": "your_bestie", "no": 2, "level": 5, "likes": 310, "look": { "band": "#2f6fd1", "helmet": true }, "life": "wants to be an astronaut (unpaid)", "v": [] },
+    { "name": "not_a_bot", "no": 3, "level": 4, "likes": 95, "v": [] },
     { "name": "mom_im_famous", "no": 4, "level": 2, "likes": 40, "v": [] },
     { "name": "lurker_no_more", "no": 5, "level": 1, "likes": 12, "look": { "band": "#2fa04a" }, "v": [] },
     { "name": "yourname", "no": 6, "level": 1, "likes": 3, "look": { "cap": "#e0384b", "glasses": true, "stache": true }, "v": [] }

@@ -3,7 +3,7 @@
 // No cells live out here: they stay inside The People's House until they are born. Outside walk the babies and citizens.
 import * as THREE from "three";
 import { M, mat, signTex, liveSign, hash, canTex } from "./kit.js";
-import { baby, walk } from "./actors.js";
+import { baby, walk, grow, STAGE_YEARS } from "./actors.js";
 import { doorOf } from "./homes.js";
 
 export const HOUSE = { x: 0, z: -22, s: 3 };    // The People's House, front door facing +z
@@ -119,7 +119,7 @@ export function buildIsland(scene, t9n) {
     walkers.forEach((w) => scene.remove(w.b.g)); walkers.length = 0;
     const LOOKS = [{ cap: "#2f6fd1" }, { band: "#2fa04a" }, { cap: "#e83a7a" }, { band: "#e8742a" }, { glasses: true }, { helmet: true }];
     list.filter((c) => c.level >= 3).slice(0, 10).forEach((c, i) => {
-      const b = baby("@" + c.name, c.look || LOOKS[i % LOOKS.length]); b.g.scale.setScalar(0.75); scene.add(b.g);
+      const b = grow(baby("@" + c.name, c.look || LOOKS[i % LOOKS.length]), STAGE_YEARS[Math.min(6, c.level)]); b.g.scale.setScalar(0.75); scene.add(b.g);
       walkers.push({ b, c, i, x: 0, z: 0, ry: 0 });
     });
   }

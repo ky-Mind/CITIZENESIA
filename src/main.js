@@ -3,7 +3,7 @@
 // At level BABY you enter the egg, are born, and walk out into an endless world of islands and sea, where you work and build.
 import * as THREE from "three";
 import { SKY, clamp, lerp, fnv, sha256 } from "./kit.js";
-import { sperm, swim, talk, baby, walk, sit, fetus, blinkAt, LOOK_COLOURS } from "./actors.js";
+import { sperm, swim, talk, baby, walk, sit, fetus, grow, STAGE_YEARS, blinkAt, LOOK_COLOURS } from "./actors.js";
 import { buildIsland, OFFICE } from "./island.js";
 import { buildDPR, SPAWN, EXIT, EGG } from "./dpr.js";
 import { createTerrain, heightAt, SEA, HOME_R } from "./terrain.js";
@@ -62,7 +62,7 @@ const homes = createHomes(out);
 const KEY = "citizenesia.save.v2", ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const newCode = () => "CZ-" + Array.from({ length: 4 }, () => ABC[Math.floor(Math.random() * ABC.length)]).join("");
 let S = { name: "", code: newCode(), look: { cap: "#e0384b", band: null, glasses: true, stache: true, helmet: false }, coins: 0, free: false, hired: false,
-  born: false, created: false, adm: { on: true, form: "president", size: 1, body: null, sim: 1 }, where: "in", posIn: [SPAWN.womb[0], SPAWN.womb[1]], posOut: [0, -14], blocks: [], homes: [], votes: { yes: 0, no: 0 } };
+  born: false, created: false, adm: { on: true, form: "president", size: 1, body: null, sim: 1, age: 16 }, where: "in", posIn: [SPAWN.womb[0], SPAWN.womb[1]], posOut: [0, -14], blocks: [], homes: [], votes: { yes: 0, no: 0 } };
 try { const v1 = JSON.parse(localStorage.getItem("citizenesia.save.v1") || "null"); if (v1) Object.assign(S, { name: v1.name || "", look: v1.look || S.look, free: !!v1.free, created: !!v1.created }); } catch {}
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
 let dirty = false, resetting = false;
@@ -84,14 +84,15 @@ fetch("data/world.json").then((r) => r.json()).then((d) => { DATA = { ...DATA, .
 function applyData() { paintData(); island.setCitizens(DATA.citizens); dpr.setCitizens(DATA.citizens); refreshLevel(); }
 const me = () => { const n = (S.name || "").toLowerCase(); return n ? DATA.citizens.find((c) => c.name.toLowerCase() === n) || null : null; };
 const linked = (c) => !!c && [].concat(c.v || []).includes(fnv(S.code));
-let LV = 1;   // 1 cell, 2 fetus, 3 baby, 4 citizen (from the census; only for a linked account)
+let LV = 1;   // 1 cell, 2 fetus, 3 baby, 4 child, 5 teen, 6 adult (from the census; only for a linked account)
 function refreshLevel() {
-  const c = me(); LV = linked(c) ? clamp(c.level | 0, 1, 4) : 1;
-  if (isAdmin) LV = powers() ? 4 : S.adm.sim;   // the admin's player view tries each census level
-  if (DEBUG && params.get("level")) LV = clamp(+params.get("level"), 1, 4);
+  const c = me(); LV = linked(c) ? clamp(c.level | 0, 1, 6) : 1;
+  if (isAdmin) LV = powers() ? 6 : S.adm.sim;   // the admin's player view tries each census level
+  if (DEBUG && params.get("level")) LV = clamp(+params.get("level"), 1, 6);
   if (avatar && avatar.kind !== kindNow()) makeAvatar();
   hud();
 }
+const ageYears = () => (powers() ? S.adm.age ?? 16 : STAGE_YEARS[clamp(LV, 3, 6)]);   // the body follows the age
 const kindNow = () => (powers() ? S.adm.form : S.born ? "baby" : LV === 2 ? "fetus" : "cell");
 
 // ---------- the player ----------
@@ -112,7 +113,7 @@ function makeAvatar() {
     avatar.g.scale.setScalar((kind === "president" ? 0.6 : 0.45 * (1 + Math.min(1, (me()?.likes || 0) / 500) * 0.6)) * k);
   }
   else if (kind === "fetus") { avatar = { kind, ...fetus(handle()) }; avatar.g.scale.setScalar(0.42 * k); }
-  else { avatar = { kind, ...baby(handle(), { ...S.look, skin: body }) }; avatar.g.scale.setScalar(0.75 * k); }
+  else { avatar = { kind, ...grow(baby(handle(), { ...S.look, skin: body }), ageYears()) }; avatar.g.scale.setScalar(0.75 * k); }
   scene().add(avatar.g);
 }
 function ground(x, z, fromY = 99) {
@@ -207,7 +208,7 @@ function hint() {
 }
 function hud() {
   $("meName").textContent = handle();
-  $("meLv").textContent = powers() ? t9n("admin") : t9n("levels")[LV];
+  $("meLv").textContent = powers() ? t9n("admin") + (S.adm.form === "baby" ? ` · ${S.adm.age ?? 16} ${t9n("aYears")}` : "") : t9n("levels")[LV];
   $("meCoins").textContent = S.free || powers() ? "∞" : S.coins;
   $("adminBtn").style.display = isAdmin ? "inline-block" : "none";
   const h = hint(); $("hint").textContent = h ? t9n(h) : "";
@@ -489,6 +490,12 @@ function openAdmin() {
     P.appendChild(lab(`${t9n("aSize")} ×${A.size.toFixed(1)}`));
     const rg = document.createElement("input"); rg.type = "range"; rg.min = 0.5; rg.max = 3; rg.step = 0.1; rg.value = A.size;
     rg.oninput = () => { A.size = +rg.value; P.querySelectorAll("label")[1].textContent = `${t9n("aSize")} ×${A.size.toFixed(1)}`; makeAvatar(); dirty = true; }; P.appendChild(rg);
+    if (A.form === "baby") {
+      A.age = A.age ?? 16;
+      P.appendChild(lab(`${t9n("aAge")}: ${A.age} ${t9n("aYears")}`));
+      const ag = document.createElement("input"); ag.type = "range"; ag.min = 0; ag.max = 80; ag.step = 1; ag.value = A.age;
+      ag.oninput = () => { A.age = +ag.value; P.querySelectorAll("label")[2].textContent = `${t9n("aAge")}: ${A.age} ${t9n("aYears")}`; makeAvatar(); hud(); dirty = true; }; P.appendChild(ag);
+    }
     P.appendChild(lab(t9n("aBody")));
     const sw = document.createElement("div"); sw.className = "row";
     [null, "#fbfaf6", "#f2c39b", "#c98a5c", "#8a5a3a", ...LOOK_COLOURS.slice(0, 6)].forEach((c) => {
@@ -498,7 +505,7 @@ function openAdmin() {
     P.appendChild(sw);
     P.appendChild(row(btn(t9n("aLook"), "", () => { $("admin").style.display = "none"; openCreator(); })));
   } else {
-    P.appendChild(row(...[1, 2, 3, 4].map((n) => btn(t9n("levels")[n], A.sim === n ? "yellow" : "off", () => { A.sim = n; changed(); }))));
+    P.appendChild(row(...[1, 2, 3, 4, 5, 6].map((n) => btn(t9n("levels")[n], A.sim === n ? "yellow" : "off", () => { A.sim = n; changed(); }))));
     P.appendChild(row(btn(t9n("aFresh"), "red", () => { A.sim = 1; S.born = false; S.hired = false; changed(t9n("aFreshDone")); PLACES.womb(); $("admin").style.display = "none"; })));
   }
   P.appendChild(lab(t9n("aGo")));
@@ -622,7 +629,7 @@ function frame() {
 
   // camera: third person, 360° around the player, pulled in when a wall, a block or the ceiling is in the way
   const d = (avatar.kind === "baby" ? dist : dist * 0.85) * (where === "house" ? 1.35 : 1);
-  camT.set(player.x, player.y + (avatar.kind === "baby" ? (seated ? 1.0 : 1.2) : 0.7), player.z);
+  camT.set(player.x, player.y + (avatar.kind === "baby" ? (seated ? 1.0 : 1.2) + (avatar.lift || 0) * avatar.g.scale.y * 1.3 : 0.7), player.z);
   const inHouse = where === "house" && !creating, cy = yaw, cp = inHouse ? Math.max(pitch, 0.9) : pitch;
   let k = d;
   for (; k > 1.2; k -= 0.25) if (camOK(camT.x + Math.sin(cy) * Math.cos(cp) * k, camT.y + Math.sin(cp) * k, camT.z + Math.cos(cy) * Math.cos(cp) * k)) break;

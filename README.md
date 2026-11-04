@@ -15,7 +15,7 @@ Open the address Vite prints (it also listens on your network, so a phone on the
 
 1. **Start in the womb.** Pick your account name and a LOOK (drag to turn around your character and walk while you edit). You start as a cell inside The People's House (Gedung DPR), whose inside is the pink womb from the video. Cells live only in here.
 2. **Explore the building.** Lobby (reception, aspiration box, metal detector, exit), the plenary hall (about 80 seats with microphones and vote buttons, the podium, the gavel, the president, three big screens, a light switch), the womb (the egg, sleeping fetuses) and the lounge (free snacks, water, TV, vending machine, nap bench, census board).
-3. **Grow through comments.** Levels come from the census, not from playing: 1 episode with a comment = CELL, 2 in a row = FETUS, 3 = BABY, 4+ = CITIZEN with a job title. The aspiration box shows your game code (CZ-XXXX): put it in one comment and the census links your account to your game. It also copies your comment and opens Instagram, TikTok or YouTube.
+3. **Grow through comments.** Levels come from the census, not from playing: each episode with a comment is one more stage: CELL, FETUS, BABY, CHILD, TEEN, ADULT (a full citizen with a job title). The body grows with the age: longer legs, a taller trunk, a smaller head, and clothes instead of a diaper. The aspiration box shows your game code (CZ-XXXX): put it in one comment and the census links your account to your game. It also copies your comment and opens Instagram, TikTok or YouTube.
 4. **Be born.** At BABY, enter the egg. You are born and may leave through the lobby door.
 5. **The world outside never ends.** Land and sea are built in chunks around you and dropped behind you, with villages on the neighbouring land. Deep water drowns you and you wake up at The People's House. You can always walk back in.
 6. **Walk into any house.** Every house has a door: the island houses, the village houses on the neighbouring land and the houses players buy. Inside, everything can be used: bed, fridge, stove, table, sofa and TV, light switch, and in bigger houses a computer (it opens the comment box) and a bookshelf. The roof is open to the camera and the wall facing it hides, like a doll's house.
@@ -37,7 +37,7 @@ Progress is saved in the browser (localStorage). The language follows the device
 
 ## Admin (the presenter)
 
-One device can be the admin's: you play as the president from the videos, at full level, with endless coins and blocks, any form (president, cell, fetus, baby), any size and body colour, no drowning, and teleports to every room and place. "View as a player" switches the powers off and lets you try each census level, or start over as a new player, to see how players grow.
+One device can be the admin's: you play as the president from the videos, at full level (as a person you pick any age from 0 to 80, 16 to start), with endless coins and blocks, any form (president, cell, fetus, baby), any size and body colour, no drowning, and teleports to every room and place. "View as a player" switches the powers off and lets you try each census level, or start over as a new player, to see how players grow.
 
 ```bash
 npm run admin-key        # makes a key: .admin-key (the key) and .env.local (its hash); both stay off git

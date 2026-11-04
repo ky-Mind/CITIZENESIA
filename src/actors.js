@@ -94,6 +94,7 @@ export function baby(name, look = {}) {
   const body = new THREE.Group(); g.add(body);
   M(new THREE.SphereGeometry(0.42, 20, 14), mat("#ffffff", { roughness: 0.9 }), 0, 0.62, 0, body).scale.set(1.05, 0.75, 0.95);
   M(new THREE.SphereGeometry(0.33, 20, 14), skin, 0, 0.95, 0, body);
+  body.children[0].userData.part = "diaper"; body.children[1].userData.part = "torso";
   const arms = [-1, 1].map((k) => { const a = new THREE.Group(); a.position.set(k * 0.3, 1.1, 0.05); body.add(a); M(new THREE.CapsuleGeometry(0.09, 0.3, 4, 8), skin, 0, -0.18, 0, a); a.rotation.z = k * 0.9; return a; });
   M(new THREE.SphereGeometry(0.55, 24, 18), skin, 0, 1.6, 0, body);
   const eyes = [-0.17, 0.17].map((dx) => { const e = M(new THREE.SphereGeometry(0.07, 10, 8), ink, dx, 1.65, 0.5, body); e.scale.set(1, 1.3, 0.5); return e; });
@@ -106,13 +107,13 @@ export function baby(name, look = {}) {
 }
 export function walk(b, t, moving, seed = 0) {
   const wv = moving ? Math.sin(t * 14) : 0;
-  b.legs[0].rotation.x = wv * 0.5; b.legs[1].rotation.x = -wv * 0.5; b.body.rotation.z = wv * 0.12; b.body.position.y = Math.abs(wv) * 0.06;
+  b.legs[0].rotation.x = wv * 0.5; b.legs[1].rotation.x = -wv * 0.5; b.body.rotation.z = wv * 0.12 / (b.k || 1); b.body.position.y = (b.lift || 0) + Math.abs(wv) * 0.06;
   b.arms[0].rotation.z = -0.9 - (moving ? 0 : 0.1 * Math.sin(t * 2 + seed)); b.arms[1].rotation.z = 0.9;
   b.eyes.forEach((e) => (e.scale.y = 1.3 * (1 - 0.9 * blinkAt(t, seed + 9))));
 }
 
 export function sit(b) {   // a baby sitting on a chair: legs forward, a little lower
-  b.legs.forEach((l) => (l.rotation.x = -1.45)); b.body.position.y = -0.18; b.body.rotation.z = 0;
+  b.legs.forEach((l) => (l.rotation.x = -1.45)); b.body.position.y = (b.lift || 0) * 0.15 - 0.18; b.body.rotation.z = 0;
 }
 
 // ---------- the fetus (level 2), curled up asleep, as in the video's egg ----------
@@ -130,4 +131,27 @@ export function fetus(name, bubble = true) {
   if (name) nameTag(f, name, 0.3, -1.95, 1.0, 0.85).rotation.z = 0.35;
   if (bubble) M(new THREE.SphereGeometry(2.1, 28, 20), new THREE.MeshPhysicalMaterial({ color: "#ffe9b8", roughness: 0.15, transparent: true, opacity: 0.4, clearcoat: 1, depthWrite: false }), 0, 0, 0, g).castShadow = false;
   return { g, f };
+}
+
+// ---------- growing up: the same baby, reshaped by age in years (0 baby … 16 teen … 25 adult … 70 elder) ----------
+// legs get longer, the trunk taller, the head relatively smaller; from 2 years on the diaper becomes trousers and a shirt.
+const KEYS = { legs: [[0, 1], [2, 1.15], [7, 1.7], [15, 2.3], [25, 2.6], [80, 2.5]], trunk: [[0, 1], [7, 1.25], [15, 1.45], [25, 1.6], [80, 1.55]], head: [[0, 1], [7, 0.9], [15, 0.82], [25, 0.78], [80, 0.78]] };
+const at = (k, y) => { const a = KEYS[k]; for (let i = 1; i < a.length; i++) if (y <= a[i][0]) { const [x0, v0] = a[i - 1], [x1, v1] = a[i]; return v0 + (v1 - v0) * (y - x0) / (x1 - x0); } return a[a.length - 1][1]; };
+export const STAGE_YEARS = { 3: 1, 4: 7, 5: 15, 6: 25 };   // census level -> age shown
+export function grow(b, years, o = {}) {
+  const L = at("legs", years), T = at("trunk", years), Hd = at("head", years);
+  b.legs.forEach((l) => { l.position.y = 0.42 * L; l.scale.set(1 + (L - 1) * 0.25, L, 1 + (L - 1) * 0.25); });
+  b.lift = 0.42 * (L - 1); b.k = L;
+  const parts = b.body.children, diaper = parts.find((c) => c.userData.part === "diaper"), torso = parts.find((c) => c.userData.part === "torso");
+  torso.scale.set(1 + (T - 1) * 0.3, T, 1 + (T - 1) * 0.15); torso.position.y = 0.95 + (T - 1) * 0.25;
+  const hg = new THREE.Group(); hg.position.set(0, 1.6 + (T - 1) * 0.55, 0);
+  parts.filter((c) => c.position.y > 1.25 && !b.arms.includes(c)).forEach((c) => { c.position.y -= 1.6; hg.add(c); });
+  hg.scale.setScalar(Hd); b.body.add(hg); b.head = hg;
+  b.arms.forEach((a) => { a.position.y = 1.1 + (T - 1) * 0.5; a.scale.y = 1 + (T - 1) * 1.1; });
+  if (years >= 2) {   // clothes instead of a diaper
+    diaper.material = mat(o.pants || "#2f6fd1", { roughness: 0.8 }); diaper.scale.set(1.05, 0.75 + (L - 1) * 0.1, 0.95);
+    torso.material = mat(o.shirt || "#e0384b", { roughness: 0.8 });
+  }
+  if (years >= 60) { b.body.rotation.x = 0.12; hg.traverse((c) => c.isMesh && c.material.color && c.material.color.getHexString() === "2a2421" && (c.material = mat("#d9d4cc"))); }   // a little stoop, grey hair
+  return b;
 }
